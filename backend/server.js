@@ -593,6 +593,37 @@ io.on("connection", socket => {
     broadcast(meta.roomCode);
   });
 
+  // ── PLAYER: SEND TO ALL PLAYERS ───────────────────────────────────────────
+  socket.on("player_send_all", ({ amount }) => {
+    const meta = socketMap[socket.id];
+    if (!meta || meta.isBanker) return;
+    const room = getRoom(meta.roomCode);
+    if (!room) return;
+    const me = room.players.find(p => p.stableId === meta.stableId);
+    if (!me) return;
+
+    const amt = parseInt(amount) || 0;
+    if (amt <= 0) { socket.emit("error", { message: "Enter a valid amount." }); return; }
+
+    const recipients = room.players.filter(p =>
+      p.stableId !== meta.stableId && p.id !== meta.stableId && !p.pending
+    );
+    if (recipients.length === 0) { socket.emit("error", { message: "No other players found." }); return; }
+
+    const total = amt * recipients.length;
+    if (me.balance < total) { socket.emit("error", { message: "Not enough balance." }); return; }
+
+    me.balance -= total;
+    recipients.forEach(to => {
+      to.balance += amt;
+      addTx(room, { fromId: me.stableId, toId: to.stableId, amount: amt, participantIds: [me.stableId, to.stableId] });
+      notifyStable(to.stableId, `Received ${money(amt)} from ${me.name}.`, "success");
+    });
+    notifyStable(me.stableId, `Sent ${money(amt)} to each of ${recipients.length} players (total: ${money(total)}).`, "info");
+    notifyStable(room.bankerSessionId, `🔄 ${me.name} sent ${money(amt)} to all players (total: ${money(total)}).`, "info");
+    broadcast(meta.roomCode);
+  });
+
   // ── PLAYER: TAKE CC ────────────────────────────────────────────────────────
   socket.on("take_cc", () => {
     const meta = socketMap[socket.id];

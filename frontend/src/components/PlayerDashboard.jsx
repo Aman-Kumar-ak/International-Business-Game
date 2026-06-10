@@ -90,6 +90,26 @@ export default function PlayerDashboard({ gameState, myInfo, showToast, onLeave,
   const doSend = () => {
     const amt = parseInt(sendAmt)
     if (!amt || amt <= 0) { showToast('Enter a valid amount', 'error'); return }
+
+    if (sendTo === 'all_players') {
+      const count = others.length
+      if (count === 0) { showToast('No other players', 'error'); return }
+      const total = amt * count
+      setConfirm({
+        title: 'Send to All Players',
+        message: `Send ${fmt(amt)} to each of ${count} player${count > 1 ? 's' : ''}?`,
+        subMessage: `Total: ${fmt(total)} · Your balance after: ${fmt(me.balance - total)}`,
+        confirmLabel: 'Send to All',
+        confirmType: 'primary',
+        onConfirm: () => {
+          socket.emit('player_send_all', { amount: amt })
+          setSendAmt('')
+          setConfirm(null)
+        }
+      })
+      return
+    }
+
     const recipientName = sendTo === 'bank'
       ? 'Bank'
       : others.find(p => (p.stableId || p.id) === sendTo)?.name || 'Player'
@@ -259,6 +279,9 @@ export default function PlayerDashboard({ gameState, myInfo, showToast, onLeave,
                   <label className="label">To</label>
                   <select className="input" value={sendTo} onChange={e => setSendTo(e.target.value)}>
                     <option value="bank">Bank (Penalties / Taxes / Fees)</option>
+                    {others.length > 1 && (
+                      <option value="all_players">⚡ All Players (×{others.length})</option>
+                    )}
                     {others.map(p => (
                       <option key={p.stableId || p.id} value={p.stableId || p.id}>
                         {p.name} (${p.balance.toLocaleString()})
