@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import socket from '../socket'
+import ConfirmModal from './ConfirmModal'
 
 function fmt(n) { return '$' + Math.abs(n).toLocaleString() }
 
@@ -12,21 +13,11 @@ function formatTimer(endsAt, now) {
   return `${minutes}:${seconds}`
 }
 
-/**
- * Color coding from the PLAYER's perspective:
- *   - Money coming IN  → green  (from_bank or someone sent to this player)
- *   - Money going OUT  → red    (to_bank or this player sent to someone)
- *
- * The tx is already part of this player's personal history, so we check
- * whether this player was the receiver or the sender.
- */
 function txColorClass(tx, myStableId) {
-  const iReceived = tx.toId === myStableId || tx.toId === 'player' // from_bank always credits me
-  if (tx.flowType === 'from_bank') return 'text-green-600'   // bank credited me ✅ green
-  if (tx.flowType === 'to_bank')   return 'text-red-500'     // I paid bank    ❌ red
-  // player_to_player — was I the receiver?
-  if (tx.toId === myStableId)      return 'text-green-600'   // received       ✅ green
-  return 'text-red-500'                                       // sent           ❌ red
+  if (tx.flowType === 'from_bank') return 'text-green-600'
+  if (tx.flowType === 'to_bank')   return 'text-red-500'
+  if (tx.toId === myStableId)      return 'text-green-600'
+  return 'text-red-500'
 }
 
 function txLabel(tx, myStableId) {
@@ -47,6 +38,7 @@ export default function PlayerDashboard({ gameState, myInfo, showToast, onLeave,
   const [sendAmt, setSendAmt] = useState('')
   const [now, setNow] = useState(Date.now())
   const [connectingTooLong, setConnectingTooLong] = useState(false)
+  const [confirm, setConfirm] = useState(null)
 
   useEffect(() => {
     if (!gameState?.endsAt) return
@@ -54,7 +46,6 @@ export default function PlayerDashboard({ gameState, myInfo, showToast, onLeave,
     return () => clearInterval(id)
   }, [gameState?.endsAt])
 
-  // If we can't find ourselves after 10 s, offer a go-home button
   useEffect(() => {
     if (!gameState) return
     const stableId = myInfo?.stableId
@@ -68,7 +59,6 @@ export default function PlayerDashboard({ gameState, myInfo, showToast, onLeave,
     return <div className="min-h-screen flex items-center justify-center text-gray-400">Loading…</div>
   }
 
-  // Find "me" by stableId (works across reconnects)
   const stableId = myInfo?.stableId
   const me = gameState.players?.find(p => p.stableId === stableId || p.id === stableId)
 
@@ -95,32 +85,71 @@ export default function PlayerDashboard({ gameState, myInfo, showToast, onLeave,
     (p.stableId !== stableId && p.id !== stableId) && !p.pending
   ) || []
   const timerLabel = formatTimer(gameState.endsAt, now)
-
-  // Personal history — server sends it as myHistory on reconnect, or via me.history
   const myHistory = gameState.myHistory || me.history || []
 
   const doSend = () => {
     const amt = parseInt(sendAmt)
     if (!amt || amt <= 0) { showToast('Enter a valid amount', 'error'); return }
-    socket.emit('player_send', { toId: sendTo, amount: amt })
-    setSendAmt('')
+    const recipientName = sendTo === 'bank'
+      ? 'Bank'
+      : others.find(p => (p.stableId || p.id) === sendTo)?.name || 'Player'
+    setConfirm({
+      title: 'Send Money',
+      message: `Send ${fmt(amt)} to ${recipientName}?`,
+      subMessage: `Your balance after: ${fmt(me.balance - amt)}`,
+      confirmLabel: 'Send',
+      confirmType: 'primary',
+      onConfirm: () => {
+        socket.emit('player_send', { toId: sendTo, amount: amt })
+        setSendAmt('')
+        setConfirm(null)
+      }
+    })
   }
 
   const takeCC = () => {
     if (me.cc?.used) { showToast('Credit card already used', 'error'); return }
-    if (window.confirm('Take $10,000 credit card loan? You must repay $2,000 × 6 times.')) {
-      socket.emit('take_cc')
-    }
+    setConfirm({
+      title: 'Take Credit Card Loan',
+      message: 'Borrow $10,000 from the bank?',
+      subMessage: 'You must repay $2,000 × 6 times = $12,000 total.',
+      confirmLabel: 'Take Loan',
+      confirmType: 'warning',
+      onConfirm: () => {
+        socket.emit('take_cc')
+        setConfirm(null)
+      }
+    })
   }
 
   const repayCC = () => {
     if (me.balance < 2000) { showToast('Not enough balance', 'error'); return }
-    socket.emit('repay_cc')
+    setConfirm({
+      title: 'Repay Instalment',
+      message: `Pay $2,000 instalment to the bank?`,
+      subMessage: `${me.cc?.remaining - 1} payments remaining after this.`,
+      confirmLabel: 'Pay $2,000',
+      confirmType: 'primary',
+      onConfirm: () => {
+        socket.emit('repay_cc')
+        setConfirm(null)
+      }
+    })
   }
 
   const payJail = (method) => {
     if (!me.jail) { showToast("You're not in jail", 'error'); return }
-    socket.emit('pay_jail_fine', { method })
+    const cost = method === 'cash' ? '$500' : '$3,000 (credit card)'
+    setConfirm({
+      title: 'Pay Jail Fine',
+      message: `Pay ${cost} to get out of jail?`,
+      confirmLabel: 'Pay Fine',
+      confirmType: 'danger',
+      onConfirm: () => {
+        socket.emit('pay_jail_fine', { method })
+        setConfirm(null)
+      }
+    })
   }
 
   const copyCode = () => {
@@ -155,7 +184,14 @@ export default function PlayerDashboard({ gameState, myInfo, showToast, onLeave,
             )}
             <button
               className="btn btn-sm btn-outline-danger"
-              onClick={() => { if (window.confirm('Leave game? Your transaction history will be preserved.')) onLeave() }}
+              onClick={() => setConfirm({
+                title: 'Leave Game',
+                message: 'Leave the game?',
+                subMessage: 'Your transaction history will be preserved.',
+                confirmLabel: 'Leave',
+                confirmType: 'danger',
+                onConfirm: () => { setConfirm(null); onLeave() }
+              })}
             >
               <i className="ti ti-logout" /> Leave
             </button>
@@ -282,6 +318,10 @@ export default function PlayerDashboard({ gameState, myInfo, showToast, onLeave,
                 <p className="text-sm text-gray-500 mb-4">
                   Take a one-time $10,000 loan from the bank. You must repay $2,000 six times.
                 </p>
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
+                  <p className="text-xs text-amber-700 font-medium">⚠️ This action requires confirmation</p>
+                  <p className="text-xs text-amber-600 mt-0.5">You'll owe $12,000 total — $2,000 more than you receive.</p>
+                </div>
                 <button className="btn btn-primary w-full justify-center" onClick={takeCC}>
                   <i className="ti ti-credit-card" /> Take Credit Card Loan
                 </button>
@@ -352,6 +392,19 @@ export default function PlayerDashboard({ gameState, myInfo, showToast, onLeave,
           </div>
         )}
       </div>
+
+      {/* Custom confirmation modal */}
+      {confirm && (
+        <ConfirmModal
+          title={confirm.title}
+          message={confirm.message}
+          subMessage={confirm.subMessage}
+          confirmLabel={confirm.confirmLabel}
+          confirmType={confirm.confirmType}
+          onConfirm={confirm.onConfirm}
+          onCancel={() => setConfirm(null)}
+        />
+      )}
     </div>
   )
 }

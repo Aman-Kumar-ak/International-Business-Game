@@ -423,11 +423,15 @@ io.on("connection", socket => {
       p.balance += amt;
       addTx(room, { fromId: "bank", toId: p.stableId, amount: amt, participantIds: [p.stableId] });
       notifyStable(p.stableId, `Bank credited ${money(amt)} to you.`, "success");
+      // Notify banker about the action they just performed
+      notifyStable(room.bankerSessionId, `✅ Added ${money(amt)} to ${p.name}.`, "success");
     } else {
       if (p.balance < amt) { socket.emit("error", { message: "Player doesn't have enough balance." }); return; }
       p.balance -= amt;
       addTx(room, { fromId: p.stableId, toId: "bank", amount: amt, participantIds: [p.stableId] });
       notifyStable(p.stableId, `Bank deducted ${money(amt)} from you.`, "error");
+      // Notify banker about the action they just performed
+      notifyStable(room.bankerSessionId, `➖ Deducted ${money(amt)} from ${p.name}.`, "info");
     }
     broadcast(meta.roomCode);
   });
@@ -452,6 +456,8 @@ io.on("connection", socket => {
     addTx(room, { fromId: from.stableId, toId: to.stableId, amount: amt, participantIds: [from.stableId, to.stableId] });
     notifyStable(from.stableId, `Transferred ${money(amt)} to ${to.name}.`,   "info");
     notifyStable(to.stableId,   `Received ${money(amt)} from ${from.name}.`,  "success");
+    // Notify banker about the transfer they just made
+    notifyStable(room.bankerSessionId, `🔄 Transferred ${money(amt)}: ${from.name} → ${to.name}.`, "info");
     broadcast(meta.roomCode);
   });
 
@@ -572,6 +578,8 @@ io.on("connection", socket => {
     if (toId === "bank") {
       addTx(room, { fromId: me.stableId, toId: "bank", amount: amt, participantIds: [me.stableId] });
       notifyStable(me.stableId, `Paid ${money(amt)} to Bank.`, "info");
+      // Notify banker that a player sent money to the bank
+      notifyStable(room.bankerSessionId, `💰 ${me.name} paid ${money(amt)} to Bank.`, "success");
     } else {
       const to = room.players.find(p => (p.stableId === toId || p.id === toId) && !p.pending);
       if (!to) { me.balance += amt; socket.emit("error", { message: "Player not found." }); return; }
@@ -579,6 +587,8 @@ io.on("connection", socket => {
       addTx(room, { fromId: me.stableId, toId: to.stableId, amount: amt, participantIds: [me.stableId, to.stableId] });
       notifyStable(me.stableId, `Sent ${money(amt)} to ${to.name}.`,    "info");
       notifyStable(to.stableId, `Received ${money(amt)} from ${me.name}.`, "success");
+      // Notify banker about the player-to-player transfer
+      notifyStable(room.bankerSessionId, `🔄 ${me.name} → ${to.name}: ${money(amt)}.`, "info");
     }
     broadcast(meta.roomCode);
   });

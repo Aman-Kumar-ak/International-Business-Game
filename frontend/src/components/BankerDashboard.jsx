@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import socket from '../socket'
+import ConfirmModal from './ConfirmModal'
 
 const COLORS = ['#185FA5','#639922','#A32D2D','#854F0B','#533AB7','#0F6E56','#993556','#5F5E5A']
 
@@ -15,16 +16,10 @@ function formatTimer(endsAt, now) {
   return `${minutes}:${seconds}`
 }
 
-/**
- * Banker history color coding:
- *   from_bank        → red   (bank paid out money — bank's balance decreases)
- *   to_bank          → green (bank received money — bank's balance increases)
- *   player_to_player → gray  (neutral, bank uninvolved)
- */
 function bankerHistoryColor(flowType) {
-  if (flowType === 'from_bank') return 'text-red-500'    // bank spent money
-  if (flowType === 'to_bank')   return 'text-green-600'  // bank received money
-  return 'text-gray-500'                                  // player-to-player
+  if (flowType === 'from_bank') return 'text-red-500'
+  if (flowType === 'to_bank')   return 'text-green-600'
+  return 'text-gray-500'
 }
 
 function flowLabel(tx) {
@@ -44,6 +39,9 @@ export default function BankerDashboard({ gameState, myInfo, showToast, onLeave,
   const [partyLander, setPartyLander] = useState('')
   const [now, setNow] = useState(Date.now())
   const [loadingTooLong, setLoadingTooLong] = useState(false)
+
+  // Custom confirm modal state
+  const [confirm, setConfirm] = useState(null) // { title, message, subMessage, confirmLabel, confirmType, onConfirm }
 
   useEffect(() => {
     if (!gameState?.endsAt) return
@@ -79,17 +77,55 @@ export default function BankerDashboard({ gameState, myInfo, showToast, onLeave,
   const totalMoney = players.reduce((s, p) => s + p.balance, 0)
   const timerLabel = formatTimer(gameState.endsAt, now)
 
-  // ── Helpers ─────────────────────────────────────────────────────────────────
-  // Normalise ID: accept either stableId or id
   const pid = (p) => p.stableId || p.id
 
+  // ── Actions ──────────────────────────────────────────────────────────────────
+
+  const ALL_PLAYERS = '__all__'
+
   const doAdjust = (type) => {
-    const id = actionPlayer || pid(players[0])
+    const id = actionPlayer || ALL_PLAYERS
     const amt = parseInt(actionAmt)
-    if (!id || !amt || amt <= 0) { showToast('Enter a valid player and amount', 'error'); return }
-    socket.emit('banker_adjust', { playerId: id, amount: amt, type })
-    setActionAmt('')
-    showToast(type === 'add' ? `Added ${fmt(amt)}` : `Deducted ${fmt(amt)}`, 'success')
+    if (!amt || amt <= 0) { showToast('Enter a valid amount', 'error'); return }
+
+    if (id === ALL_PLAYERS) {
+      if (players.length === 0) { showToast('No players in game', 'error'); return }
+      setConfirm({
+        title: type === 'add' ? 'Add to All Players' : 'Deduct from All Players',
+        message: type === 'add'
+          ? `Add ${fmt(amt)} to all ${players.length} players?`
+          : `Deduct ${fmt(amt)} from all ${players.length} players?`,
+        subMessage: `Every player in the game will be affected.`,
+        confirmLabel: type === 'add' ? `Add to All (${players.length})` : `Deduct from All (${players.length})`,
+        confirmType: type === 'add' ? 'success' : 'danger',
+        onConfirm: () => {
+          players.forEach(p => socket.emit('banker_adjust', { playerId: pid(p), amount: amt, type }))
+          setActionAmt('')
+          showToast(type === 'add' ? `Added ${fmt(amt)} to all ${players.length} players` : `Deducted ${fmt(amt)} from all ${players.length} players`, 'success')
+          setConfirm(null)
+        }
+      })
+    } else {
+      const player = players.find(p => pid(p) === id)
+      const playerName = player?.name || 'Player'
+      setConfirm({
+        title: type === 'add' ? 'Add Money' : 'Deduct Money',
+        message: type === 'add'
+          ? `Add ${fmt(amt)} to ${playerName}?`
+          : `Deduct ${fmt(amt)} from ${playerName}?`,
+        subMessage: type === 'add'
+          ? `${playerName}'s balance will increase by ${fmt(amt)}.`
+          : `${playerName}'s current balance: ${fmt(player?.balance || 0)}`,
+        confirmLabel: type === 'add' ? 'Add Money' : 'Deduct Money',
+        confirmType: type === 'add' ? 'success' : 'danger',
+        onConfirm: () => {
+          socket.emit('banker_adjust', { playerId: id, amount: amt, type })
+          setActionAmt('')
+          showToast(type === 'add' ? `Added ${fmt(amt)} to ${playerName}` : `Deducted ${fmt(amt)} from ${playerName}`, 'success')
+          setConfirm(null)
+        }
+      })
+    }
   }
 
   const doTransfer = () => {
@@ -98,10 +134,24 @@ export default function BankerDashboard({ gameState, myInfo, showToast, onLeave,
     const amt = parseInt(transferAmt)
     if (!fid || !tid || fid === tid) { showToast('Select two different players', 'error'); return }
     if (!amt || amt <= 0) { showToast('Enter amount', 'error'); return }
-    socket.emit('banker_transfer', { fromId: fid, toId: tid, amount: amt })
-    setTransferAmt('')
-    showToast('Transfer done!', 'success')
+    const fromP = players.find(p => pid(p) === fid)
+    const toP = players.find(p => pid(p) === tid)
+    setConfirm({
+      title: 'Transfer Money',
+      message: `Transfer ${fmt(amt)} from ${fromP?.name} to ${toP?.name}?`,
+      subMessage: `${fromP?.name}'s balance after: ${fmt((fromP?.balance || 0) - amt)}`,
+      confirmLabel: 'Transfer',
+      confirmType: 'primary',
+      onConfirm: () => {
+        socket.emit('banker_transfer', { fromId: fid, toId: tid, amount: amt })
+        setTransferAmt('')
+        showToast(`Transferred ${fmt(amt)} from ${fromP?.name} to ${toP?.name}`, 'success')
+        setConfirm(null)
+      }
+    })
   }
+
+
 
   const openPartyModal = (type) => {
     setPartyType(type)
@@ -111,9 +161,23 @@ export default function BankerDashboard({ gameState, myInfo, showToast, onLeave,
 
   const confirmParty = () => {
     if (!partyLander) { showToast('Select a player', 'error'); return }
-    socket.emit(partyType === 'party' ? 'party_house' : 'resort', { landerId: partyLander })
+    const lander = players.find(p => pid(p) === partyLander)
+    const eventName = partyType === 'party' ? 'Party House' : 'Resort'
     setShowParty(false)
-    showToast(partyType === 'party' ? 'Party House done!' : 'Resort done!', 'success')
+    setConfirm({
+      title: `${eventName} — Confirm`,
+      message: partyType === 'party'
+        ? `${lander?.name} receives $200 from all other players?`
+        : `${lander?.name} pays $200 to all other players?`,
+      subMessage: `This will affect all ${players.length} players.`,
+      confirmLabel: `Yes, ${eventName}`,
+      confirmType: partyType === 'party' ? 'success' : 'danger',
+      onConfirm: () => {
+        socket.emit(partyType === 'party' ? 'party_house' : 'resort', { landerId: partyLander })
+        showToast(`${eventName} done!`, 'success')
+        setConfirm(null)
+      }
+    })
   }
 
   const ctrl = controlPlayer || pid(players[0])
@@ -122,7 +186,6 @@ export default function BankerDashboard({ gameState, myInfo, showToast, onLeave,
     navigator.clipboard.writeText(myInfo.roomCode).then(() => showToast('Room code copied!', 'success'))
   }
 
-  // All-game transactions visible to banker
   const allTransactions = gameState.transactions || []
 
   return (
@@ -152,13 +215,26 @@ export default function BankerDashboard({ gameState, myInfo, showToast, onLeave,
             </span>
             <button
               className="btn btn-sm btn-danger"
-              onClick={() => { if (window.confirm('End game and show results?')) socket.emit('end_game') }}
+              onClick={() => setConfirm({
+                title: 'End Game',
+                message: 'End the game and show final results to all players?',
+                subMessage: 'This action cannot be undone.',
+                confirmLabel: 'End Game',
+                confirmType: 'danger',
+                onConfirm: () => { socket.emit('end_game'); setConfirm(null) }
+              })}
             >
               <i className="ti ti-flag" /> End Game
             </button>
             <button
               className="btn btn-sm btn-outline-danger"
-              onClick={() => { if (window.confirm('Leave? Game will end for all players.')) onLeave() }}
+              onClick={() => setConfirm({
+                title: 'Leave Game',
+                message: 'Leave the game? This will end the game for all players.',
+                confirmLabel: 'Leave & End',
+                confirmType: 'danger',
+                onConfirm: () => { setConfirm(null); onLeave() }
+              })}
             >
               <i className="ti ti-logout" /> Leave
             </button>
@@ -167,8 +243,8 @@ export default function BankerDashboard({ gameState, myInfo, showToast, onLeave,
       </div>
 
       <div className="max-w-4xl mx-auto px-4 pt-4">
-        {/* Stats */}
-        <div className="grid grid-cols-3 gap-3 mb-4">
+        {/* Stats — removed round count */}
+        <div className="grid grid-cols-2 gap-3 mb-4">
           <div className="card p-4 text-center">
             <div className="text-2xl font-semibold">{players.length}</div>
             <div className="text-xs text-gray-400 mt-0.5">Players</div>
@@ -176,10 +252,6 @@ export default function BankerDashboard({ gameState, myInfo, showToast, onLeave,
           <div className="card p-4 text-center">
             <div className="text-xl font-semibold text-brand-600">${totalMoney.toLocaleString()}</div>
             <div className="text-xs text-gray-400 mt-0.5">Total Money</div>
-          </div>
-          <div className="card p-4 text-center">
-            <div className="text-2xl font-semibold">{gameState.round ?? 1}</div>
-            <div className="text-xs text-gray-400 mt-0.5">Round</div>
           </div>
         </div>
 
@@ -248,7 +320,8 @@ export default function BankerDashboard({ gameState, myInfo, showToast, onLeave,
               <div className="grid grid-cols-2 gap-3 mb-3">
                 <div>
                   <label className="label">Player</label>
-                  <select className="input" value={actionPlayer} onChange={e => setActionPlayer(e.target.value)}>
+                  <select className="input" value={actionPlayer || ALL_PLAYERS} onChange={e => setActionPlayer(e.target.value)}>
+                    <option value={ALL_PLAYERS}>⚡ All Players ({players.length})</option>
                     {players.map(p => (
                       <option key={pid(p)} value={pid(p)}>
                         {p.name} (${p.balance.toLocaleString()})
@@ -310,19 +383,55 @@ export default function BankerDashboard({ gameState, myInfo, showToast, onLeave,
               </div>
               <div className="flex flex-wrap gap-2">
                 <button className="btn btn-sm btn-danger"
-                  onClick={() => { socket.emit('set_jail', { playerId: ctrl, jail: true }); showToast('Sent to jail', 'info') }}>
+                  onClick={() => {
+                    const p = players.find(pl => pid(pl) === ctrl)
+                    setConfirm({
+                      title: 'Send to Jail',
+                      message: `Send ${p?.name} to jail?`,
+                      confirmLabel: 'Send to Jail',
+                      confirmType: 'danger',
+                      onConfirm: () => { socket.emit('set_jail', { playerId: ctrl, jail: true }); showToast(`${p?.name} sent to jail`, 'info'); setConfirm(null) }
+                    })
+                  }}>
                   <i className="ti ti-lock" /> Send to Jail
                 </button>
                 <button className="btn btn-sm btn-success"
-                  onClick={() => { socket.emit('set_jail', { playerId: ctrl, jail: false }); showToast('Released from jail', 'success') }}>
+                  onClick={() => {
+                    const p = players.find(pl => pid(pl) === ctrl)
+                    setConfirm({
+                      title: 'Release from Jail',
+                      message: `Release ${p?.name} from jail?`,
+                      confirmLabel: 'Release',
+                      confirmType: 'success',
+                      onConfirm: () => { socket.emit('set_jail', { playerId: ctrl, jail: false }); showToast(`${p?.name} released`, 'success'); setConfirm(null) }
+                    })
+                  }}>
                   <i className="ti ti-lock-open" /> Release Jail
                 </button>
                 <button className="btn btn-sm btn-danger"
-                  onClick={() => { socket.emit('set_passport', { playerId: ctrl, passport: false }); showToast('Passport suspended', 'info') }}>
+                  onClick={() => {
+                    const p = players.find(pl => pid(pl) === ctrl)
+                    setConfirm({
+                      title: 'Suspend Passport',
+                      message: `Suspend ${p?.name}'s passport?`,
+                      confirmLabel: 'Suspend',
+                      confirmType: 'danger',
+                      onConfirm: () => { socket.emit('set_passport', { playerId: ctrl, passport: false }); showToast(`${p?.name}'s passport suspended`, 'info'); setConfirm(null) }
+                    })
+                  }}>
                   <i className="ti ti-id-badge-off" /> Suspend Passport
                 </button>
                 <button className="btn btn-sm btn-success"
-                  onClick={() => { socket.emit('set_passport', { playerId: ctrl, passport: true }); showToast('Passport restored', 'success') }}>
+                  onClick={() => {
+                    const p = players.find(pl => pid(pl) === ctrl)
+                    setConfirm({
+                      title: 'Restore Passport',
+                      message: `Restore ${p?.name}'s passport?`,
+                      confirmLabel: 'Restore',
+                      confirmType: 'success',
+                      onConfirm: () => { socket.emit('set_passport', { playerId: ctrl, passport: true }); showToast(`${p?.name}'s passport restored`, 'success'); setConfirm(null) }
+                    })
+                  }}>
                   <i className="ti ti-id-badge" /> Restore Passport
                 </button>
               </div>
@@ -394,6 +503,19 @@ export default function BankerDashboard({ gameState, myInfo, showToast, onLeave,
             </div>
           </div>
         </div>
+      )}
+
+      {/* Custom confirmation modal */}
+      {confirm && (
+        <ConfirmModal
+          title={confirm.title}
+          message={confirm.message}
+          subMessage={confirm.subMessage}
+          confirmLabel={confirm.confirmLabel}
+          confirmType={confirm.confirmType}
+          onConfirm={confirm.onConfirm}
+          onCancel={() => setConfirm(null)}
+        />
       )}
     </div>
   )
