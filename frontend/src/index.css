@@ -1,0 +1,98 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-gray-50 text-gray-900 font-sans antialiased;
+  }
+
+  /* Smooth scrolling everywhere */
+  * {
+    scroll-behavior: smooth;
+  }
+
+  /* Prevent layout shift on number inputs */
+  input[type='number']::-webkit-inner-spin-button,
+  input[type='number']::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type='number'] {
+    -moz-appearance: textfield;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-gray-200 bg-white
+           text-sm font-medium text-gray-700
+           hover:bg-gray-50 active:scale-95
+           transition-all duration-100 cursor-pointer select-none
+           disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100;
+  }
+  .btn-primary {
+    @apply bg-brand-600 text-white border-brand-600 hover:bg-brand-800 hover:border-brand-800;
+  }
+  .btn-danger {
+    @apply bg-red-600 text-white border-red-600 hover:bg-red-700 hover:border-red-700;
+  }
+  .btn-success {
+    @apply bg-green-600 text-white border-green-600 hover:bg-green-700 hover:border-green-700;
+  }
+  .btn-outline-danger {
+    @apply border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300;
+  }
+  .btn-sm {
+    @apply px-3 py-1.5 text-xs;
+  }
+
+  .card {
+    @apply bg-white rounded-xl border border-gray-100 shadow-sm p-5;
+  }
+
+  .input {
+    @apply w-full px-3 py-2 rounded-lg border border-gray-200 text-sm bg-white
+           focus:outline-none focus:border-brand-400 focus:ring-1 focus:ring-brand-400
+           transition-colors;
+  }
+
+  .label {
+    @apply block text-xs text-gray-500 mb-1 font-medium;
+  }
+
+  .badge {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium;
+  }
+  .badge-green  { @apply bg-green-50  text-green-700; }
+  .badge-red    { @apply bg-red-50    text-red-700; }
+  .badge-blue   { @apply bg-blue-50   text-blue-700; }
+  .badge-amber  { @apply bg-amber-50  text-amber-700; }
+
+  .tab-btn {
+    @apply px-4 py-2 text-sm font-medium text-gray-500
+           border-b-2 border-transparent
+           hover:text-gray-700 transition-colors cursor-pointer
+           whitespace-nowrap;
+  }
+  .tab-btn.active {
+    @apply text-brand-600 border-brand-600;
+  }
+}
+
+@layer utilities {
+  /* Toast slide-up animation */
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateX(-50%) translateY(16px); }
+    to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+  }
+  .animate-slide-up {
+    animation: slideUp 0.2s ease-out forwards;
+  }
+
+  /* Pulse ring for offline indicator */
+  @keyframes pulse-ring {
+    0%   { transform: scale(0.9); opacity: 0.8; }
+    100% { transform: scale(1.4); opacity: 0; }
+  }
+}
