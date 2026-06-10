@@ -1,5 +1,27 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import socket from '../socket'
+
+function QRCode({ value, size = 160 }) {
+  const ref = useRef(null)
+  useEffect(() => {
+    if (!ref.current || !value) return
+    const script = document.createElement('script')
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js'
+    script.onload = () => {
+      if (ref.current) {
+        ref.current.innerHTML = ''
+        new window.QRCode(ref.current, { text: value, width: size, height: size, correctLevel: window.QRCode.CorrectLevel.M })
+      }
+    }
+    if (window.QRCode) {
+      ref.current.innerHTML = ''
+      new window.QRCode(ref.current, { text: value, width: size, height: size, correctLevel: window.QRCode.CorrectLevel.M })
+    } else {
+      document.head.appendChild(script)
+    }
+  }, [value, size])
+  return <div ref={ref} className="flex items-center justify-center" />
+}
 
 export default function WaitingCodeScreen({ myInfo, gameState, showToast, onLeave }) {
   const [approvingAll, setApprovingAll] = useState(false)
@@ -64,7 +86,15 @@ export default function WaitingCodeScreen({ myInfo, gameState, showToast, onLeav
             Tap to copy
           </p>
         </div>
-        <p className="text-xs text-gray-400 text-center mb-5">Share this code with all players</p>
+        <p className="text-xs text-gray-400 text-center mb-3">Share this code with all players</p>
+
+        {/* QR Code */}
+        <div className="flex flex-col items-center mb-5">
+          <div className="bg-white border border-gray-100 rounded-xl p-3 inline-block">
+            <QRCode value={`${window.location.origin}?code=${myInfo.roomCode}`} size={140} />
+          </div>
+          <p className="text-xs text-gray-400 mt-2">Or scan to join</p>
+        </div>
 
         {/* Game info */}
         <div className="flex justify-between text-xs text-gray-400 bg-gray-50 rounded-lg px-4 py-2 mb-5">

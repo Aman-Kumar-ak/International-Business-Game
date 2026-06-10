@@ -103,7 +103,32 @@ function snapPlayer(room, stableId) {
 }
 
 // ── Broadcast ─────────────────────────────────────────────────────────────────
+// Debounce timers per room — collapse rapid-fire broadcasts (e.g. adjust_all) into one
+const _broadcastTimers = {};
+
 function broadcast(roomCode) {
+  if (_broadcastTimers[roomCode]) return; // already scheduled
+  _broadcastTimers[roomCode] = setTimeout(() => {
+    delete _broadcastTimers[roomCode];
+    const room = getRoom(roomCode);
+    if (!room) return;
+
+    const bSock = stableToSocket[room.bankerSessionId];
+    if (bSock) io.to(bSock).emit("room_update", snapBanker(room));
+
+    room.players.forEach(p => {
+      const pSock = stableToSocket[p.stableId];
+      if (pSock) io.to(pSock).emit("room_update", snapPlayer(room, p.stableId));
+    });
+  }, 40); // 40ms window — imperceptible to humans, collapses same-tick calls
+}
+
+// Immediate broadcast — bypasses debounce. Use for game_started, end_game.
+function broadcastNow(roomCode) {
+  if (_broadcastTimers[roomCode]) {
+    clearTimeout(_broadcastTimers[roomCode]);
+    delete _broadcastTimers[roomCode];
+  }
   const room = getRoom(roomCode);
   if (!room) return;
 
@@ -402,7 +427,7 @@ io.on("connection", socket => {
     });
 
     scheduleAutoEnd(room);
-    broadcast(meta.roomCode);
+    broadcastNow(meta.roomCode);
     io.to(meta.roomCode).emit("game_started");
     notifyRoom(meta.roomCode, "Game started! Money distributed.", "success");
   });
@@ -433,6 +458,44 @@ io.on("connection", socket => {
       // Notify banker about the action they just performed
       notifyStable(room.bankerSessionId, `➖ Deducted ${money(amt)} from ${p.name}.`, "info");
     }
+    broadcast(meta.roomCode);
+  });
+
+  // ── BANKER: ADJUST ALL PLAYERS (batched) ────────────────────────────────────
+  socket.on("banker_adjust_all", ({ amount, type }) => {
+    const meta = socketMap[socket.id];
+    if (!meta?.isBanker) return;
+    const room = getRoom(meta.roomCode);
+    if (!room) return;
+
+    const amt = parseInt(amount) || 0;
+    if (amt <= 0) { socket.emit("error", { message: "Enter a valid amount." }); return; }
+
+    const eligible = room.players.filter(p => !p.pending);
+    if (eligible.length === 0) { socket.emit("error", { message: "No players in game." }); return; }
+
+    if (type === "deduct") {
+      const broke = eligible.filter(p => p.balance < amt);
+      if (broke.length > 0) {
+        socket.emit("error", { message: `${broke.map(p => p.name).join(", ")} don't have enough balance.` });
+        return;
+      }
+    }
+
+    eligible.forEach(p => {
+      if (type === "add") {
+        p.balance += amt;
+        addTx(room, { fromId: "bank", toId: p.stableId, amount: amt, participantIds: [p.stableId] });
+        notifyStable(p.stableId, `Bank credited ${money(amt)} to you.`, "success");
+      } else {
+        p.balance -= amt;
+        addTx(room, { fromId: p.stableId, toId: "bank", amount: amt, participantIds: [p.stableId] });
+        notifyStable(p.stableId, `Bank deducted ${money(amt)} from you.`, "error");
+      }
+    });
+
+    const label = type === "add" ? `Added ${money(amt)} to all ${eligible.length} players.` : `Deducted ${money(amt)} from all ${eligible.length} players.`;
+    notifyStable(room.bankerSessionId, label, "success");
     broadcast(meta.roomCode);
   });
 
@@ -503,8 +566,12 @@ io.on("connection", socket => {
     const others = room.players.filter(p => p.stableId !== lander?.stableId && !p.pending);
     if (!lander || others.length === 0) return;
 
-    others.forEach(p => {
-      p.balance    -= 200;
+    // Only collect from players who can afford it
+    const payers = others.filter(p => p.balance >= 200);
+    if (payers.length === 0) { socket.emit("error", { message: "No players have enough balance to pay." }); return; }
+
+    payers.forEach(p => {
+      p.balance      -= 200;
       lander.balance += 200;
       addTx(room, {
         fromId: p.stableId, toId: lander.stableId, amount: 200,
@@ -512,7 +579,7 @@ io.on("connection", socket => {
       });
       notifyStable(p.stableId, `Party House: paid $200 to ${lander.name}.`, "error");
     });
-    notifyStable(lander.stableId, `Party House: received $${(200 * others.length).toLocaleString()}.`, "success");
+    notifyStable(lander.stableId, `Party House: received $${(200 * payers.length).toLocaleString()}.`, "success");
     broadcast(meta.roomCode);
   });
 
@@ -526,8 +593,15 @@ io.on("connection", socket => {
     const others = room.players.filter(p => p.stableId !== lander?.stableId && !p.pending);
     if (!lander || others.length === 0) return;
 
+    // Check lander can afford to pay all others
+    const totalCost = 200 * others.length;
+    if (lander.balance < totalCost) {
+      socket.emit("error", { message: `${lander.name} needs $${totalCost.toLocaleString()} but only has $${lander.balance.toLocaleString()}.` });
+      return;
+    }
+
     others.forEach(p => {
-      p.balance    += 200;
+      p.balance      += 200;
       lander.balance -= 200;
       addTx(room, {
         fromId: lander.stableId, toId: p.stableId, amount: 200,
@@ -535,7 +609,7 @@ io.on("connection", socket => {
       });
       notifyStable(p.stableId, `Resort: received $200 from ${lander.name}.`, "success");
     });
-    notifyStable(lander.stableId, `Resort: paid $${(200 * others.length).toLocaleString()}.`, "error");
+    notifyStable(lander.stableId, `Resort: paid $${totalCost.toLocaleString()}.`, "error");
     broadcast(meta.roomCode);
   });
 

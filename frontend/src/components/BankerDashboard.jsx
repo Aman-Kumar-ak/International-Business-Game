@@ -26,6 +26,24 @@ function flowLabel(tx) {
   return `${tx.fromName || 'Unknown'} → ${tx.toName || 'Unknown'}`
 }
 
+function QuickAmounts({ onSelect }) {
+  const amounts = [200, 500, 1000, 2000, 5000]
+  return (
+    <div className="flex flex-wrap gap-1.5 mt-2">
+      {amounts.map(a => (
+        <button
+          key={a}
+          type="button"
+          className="btn btn-sm btn-outline text-xs px-2 py-1"
+          onClick={() => onSelect(String(a))}
+        >
+          ${a.toLocaleString()}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 export default function BankerDashboard({ gameState, myInfo, showToast, onLeave, onConnectionFailed }) {
   const [tab, setTab] = useState('players')
   const [actionPlayer, setActionPlayer] = useState('')
@@ -39,6 +57,7 @@ export default function BankerDashboard({ gameState, myInfo, showToast, onLeave,
   const [partyLander, setPartyLander] = useState('')
   const [now, setNow] = useState(Date.now())
   const [loadingTooLong, setLoadingTooLong] = useState(false)
+  const [historyFilter, setHistoryFilter] = useState('')
 
   // Custom confirm modal state
   const [confirm, setConfirm] = useState(null) // { title, message, subMessage, confirmLabel, confirmType, onConfirm }
@@ -73,9 +92,11 @@ export default function BankerDashboard({ gameState, myInfo, showToast, onLeave,
     )
   }
 
-  const players = gameState.players?.filter(p => !p.pending) || []
+  const players = (gameState.players?.filter(p => !p.pending) || []).slice().sort((a, b) => b.balance - a.balance)
   const totalMoney = players.reduce((s, p) => s + p.balance, 0)
   const timerLabel = formatTimer(gameState.endsAt, now)
+  const timerMs = gameState.endsAt ? Math.max(0, new Date(gameState.endsAt).getTime() - now) : Infinity
+  const timerColor = timerMs < 60000 ? 'badge-red' : timerMs < 300000 ? 'badge-amber' : 'badge-blue'
 
   const pid = (p) => p.stableId || p.id
 
@@ -99,9 +120,8 @@ export default function BankerDashboard({ gameState, myInfo, showToast, onLeave,
         confirmLabel: type === 'add' ? `Add to All (${players.length})` : `Deduct from All (${players.length})`,
         confirmType: type === 'add' ? 'success' : 'danger',
         onConfirm: () => {
-          players.forEach(p => socket.emit('banker_adjust', { playerId: pid(p), amount: amt, type }))
+          socket.emit('banker_adjust_all', { amount: amt, type })
           setActionAmt('')
-          showToast(type === 'add' ? `Added ${fmt(amt)} to all ${players.length} players` : `Deducted ${fmt(amt)} from all ${players.length} players`, 'success')
           setConfirm(null)
         }
       })
@@ -210,7 +230,7 @@ export default function BankerDashboard({ gameState, myInfo, showToast, onLeave,
             </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="badge badge-blue text-sm px-3 py-1.5">
+            <span className={`badge ${timerColor} text-sm px-3 py-1.5`}>
               <i className="ti ti-clock" /> {timerLabel}
             </span>
             <button
@@ -281,9 +301,12 @@ export default function BankerDashboard({ gameState, myInfo, showToast, onLeave,
             {players.map((p, i) => (
               <div
                 key={pid(p)}
-                className={`flex items-center justify-between py-3 border-b border-gray-50 last:border-0 ${!p.online ? 'opacity-50' : ''}`}
+                className={`flex items-center justify-between py-3 border-b border-gray-50 last:border-0 cursor-pointer hover:bg-gray-50 transition-colors rounded-lg px-1 ${!p.online ? 'opacity-50' : ''}`}
+                onClick={() => { setActionPlayer(pid(p)); setControlPlayer(pid(p)); setTab('actions') }}
+                title="Tap to open actions for this player"
               >
                 <div className="flex items-center gap-3">
+                  <span className="text-xs font-semibold text-gray-400 w-5 text-center flex-shrink-0">#{i + 1}</span>
                   <div
                     className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold flex-shrink-0 ${!p.online ? 'grayscale' : ''}`}
                     style={{ background: COLORS[i % COLORS.length] + '20', color: COLORS[i % COLORS.length] }}
@@ -301,6 +324,16 @@ export default function BankerDashboard({ gameState, myInfo, showToast, onLeave,
                       {p.cc?.used && p.cc?.remaining > 0 && <span className="badge badge-blue text-xs">CC: {p.cc.remaining} left</span>}
                       {p.cc?.used && p.cc?.remaining === 0 && <span className="badge badge-green text-xs">CC Cleared</span>}
                     </div>
+                    {(() => {
+                      const lastTx = allTransactions.find(tx => tx.fromId === pid(p) || tx.toId === pid(p))
+                      if (!lastTx) return null
+                      const isIn = lastTx.toId === pid(p)
+                      return (
+                        <p className="text-xs text-gray-300 mt-0.5">
+                          {isIn ? '+' : '-'}{fmt(lastTx.amount)} {isIn ? `from ${lastTx.fromName}` : `to ${lastTx.toName}`}
+                        </p>
+                      )
+                    })()}
                   </div>
                 </div>
                 <div className={`text-lg font-semibold ${!p.online ? 'text-gray-400' : 'text-brand-600'}`}>
@@ -333,6 +366,7 @@ export default function BankerDashboard({ gameState, myInfo, showToast, onLeave,
                   <label className="label">Amount</label>
                   <input className="input" type="number" placeholder="0" value={actionAmt}
                     onChange={e => setActionAmt(e.target.value)} />
+                  <QuickAmounts onSelect={setActionAmt} />
                 </div>
               </div>
               <div className="flex gap-2 flex-wrap">
@@ -358,7 +392,9 @@ export default function BankerDashboard({ gameState, myInfo, showToast, onLeave,
                 <div>
                   <label className="label">To</label>
                   <select className="input" value={toPlayer} onChange={e => setToPlayer(e.target.value)}>
-                    {players.map(p => <option key={pid(p)} value={pid(p)}>{p.name}</option>)}
+                    {players.filter(p => pid(p) !== (fromPlayer || pid(players[0]))).map(p => (
+                      <option key={pid(p)} value={pid(p)}>{p.name}</option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -366,6 +402,7 @@ export default function BankerDashboard({ gameState, myInfo, showToast, onLeave,
                 <label className="label">Amount</label>
                 <input className="input" type="number" placeholder="0" value={transferAmt}
                   onChange={e => setTransferAmt(e.target.value)} />
+                <QuickAmounts onSelect={setTransferAmt} />
               </div>
               <button className="btn btn-primary" onClick={doTransfer}>
                 <i className="ti ti-arrows-exchange" /> Transfer
@@ -453,30 +490,41 @@ export default function BankerDashboard({ gameState, myInfo, showToast, onLeave,
         )}
 
         {/* History — banker sees ALL transactions */}
-        {tab === 'history' && (
-          <div className="card">
-            <p className="text-xs text-gray-400 uppercase tracking-wide font-medium mb-3">
-              All Transactions
-            </p>
-            {allTransactions.length === 0 && (
-              <p className="text-sm text-gray-400 text-center py-6">No transactions yet</p>
-            )}
-            {allTransactions.map(tx => (
-              <div
-                key={tx.id}
-                className="flex items-center justify-between py-2.5 border-b border-gray-50 last:border-0"
-              >
-                <div>
-                  <span className="text-sm font-medium">{flowLabel(tx)}</span>
-                  <div className="text-xs text-gray-300 mt-0.5">{tx.time}</div>
-                </div>
-                <span className={`text-sm font-semibold ${bankerHistoryColor(tx.flowType)}`}>
-                  {fmt(tx.amount)}
-                </span>
+        {tab === 'history' && (() => {
+          const filteredTx = historyFilter
+            ? allTransactions.filter(tx => tx.fromId === historyFilter || tx.toId === historyFilter)
+            : allTransactions
+          return (
+            <div className="card">
+              <div className="flex items-center gap-3 mb-4">
+                <p className="text-xs text-gray-400 uppercase tracking-wide font-medium flex-shrink-0">Filter</p>
+                <select className="input text-sm" value={historyFilter} onChange={e => setHistoryFilter(e.target.value)}>
+                  <option value="">All transactions</option>
+                  {players.map(p => (
+                    <option key={pid(p)} value={pid(p)}>{p.name}</option>
+                  ))}
+                </select>
               </div>
-            ))}
-          </div>
-        )}
+              {filteredTx.length === 0 && (
+                <p className="text-sm text-gray-400 text-center py-6">No transactions yet</p>
+              )}
+              {filteredTx.map(tx => (
+                <div
+                  key={tx.id}
+                  className="flex items-center justify-between py-2.5 border-b border-gray-50 last:border-0"
+                >
+                  <div>
+                    <span className="text-sm font-medium">{flowLabel(tx)}</span>
+                    <div className="text-xs text-gray-300 mt-0.5">{tx.time}</div>
+                  </div>
+                  <span className={`text-sm font-semibold ${bankerHistoryColor(tx.flowType)}`}>
+                    {fmt(tx.amount)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )
+        })()}
       </div>
 
       {/* Party / Resort modal */}

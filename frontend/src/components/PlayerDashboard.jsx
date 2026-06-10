@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import socket from '../socket'
 import ConfirmModal from './ConfirmModal'
 
 function fmt(n) { return '$' + Math.abs(n).toLocaleString() }
+function haptic(ms = 60) { try { navigator.vibrate?.(ms) } catch (_) {} }
 
 function formatTimer(endsAt, now) {
   if (!endsAt) return '--:--'
@@ -32,6 +33,24 @@ function txSign(tx, myStableId) {
   return incoming ? '+' : '-'
 }
 
+function QuickAmounts({ onSelect }) {
+  const amounts = [200, 500, 1000, 2000, 5000]
+  return (
+    <div className="flex flex-wrap gap-1.5 mt-2">
+      {amounts.map(a => (
+        <button
+          key={a}
+          type="button"
+          className="btn btn-sm btn-outline text-xs px-2 py-1"
+          onClick={() => onSelect(String(a))}
+        >
+          ${a.toLocaleString()}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 export default function PlayerDashboard({ gameState, myInfo, showToast, onLeave, onConnectionFailed }) {
   const [tab, setTab] = useState('send')
   const [sendTo, setSendTo] = useState('bank')
@@ -39,6 +58,7 @@ export default function PlayerDashboard({ gameState, myInfo, showToast, onLeave,
   const [now, setNow] = useState(Date.now())
   const [connectingTooLong, setConnectingTooLong] = useState(false)
   const [confirm, setConfirm] = useState(null)
+  const lastSeenTxId = useRef(null)
 
   useEffect(() => {
     if (!gameState?.endsAt) return
@@ -85,6 +105,10 @@ export default function PlayerDashboard({ gameState, myInfo, showToast, onLeave,
     (p.stableId !== stableId && p.id !== stableId) && !p.pending
   ) || []
   const timerLabel = formatTimer(gameState.endsAt, now)
+  const timerMs = gameState.endsAt ? Math.max(0, new Date(gameState.endsAt).getTime() - now) : Infinity
+  const timerColor = timerMs < 60000 ? 'text-red-500' : timerMs < 300000 ? 'text-amber-500' : 'text-gray-400'
+  const allSorted = (gameState.players?.filter(p => !p.pending) || []).slice().sort((a, b) => b.balance - a.balance)
+  const myRank = allSorted.findIndex(p => p.stableId === stableId || p.id === stableId) + 1
   const myHistory = gameState.myHistory || me.history || []
 
   const doSend = () => {
@@ -102,6 +126,7 @@ export default function PlayerDashboard({ gameState, myInfo, showToast, onLeave,
         confirmLabel: 'Send to All',
         confirmType: 'primary',
         onConfirm: () => {
+          haptic()
           socket.emit('player_send_all', { amount: amt })
           setSendAmt('')
           setConfirm(null)
@@ -120,6 +145,7 @@ export default function PlayerDashboard({ gameState, myInfo, showToast, onLeave,
       confirmLabel: 'Send',
       confirmType: 'primary',
       onConfirm: () => {
+        haptic()
         socket.emit('player_send', { toId: sendTo, amount: amt })
         setSendAmt('')
         setConfirm(null)
@@ -184,7 +210,7 @@ export default function PlayerDashboard({ gameState, myInfo, showToast, onLeave,
           <div>
             <h1 className="text-base font-semibold">Hi, {me.name}!</h1>
             <div className="flex items-center gap-2 mt-1">
-              <p className="text-xs text-gray-400">{gameState.roomName} · {timerLabel}</p>
+              <p className="text-xs text-gray-400">{gameState.roomName} · <span className={timerColor + ' font-medium'}>{timerLabel}</span></p>
               {myInfo?.roomCode && (
                 <span
                   className="cursor-pointer group badge badge-blue text-xs px-2 py-0.5 font-mono"
@@ -224,7 +250,12 @@ export default function PlayerDashboard({ gameState, myInfo, showToast, onLeave,
         <div className="bg-brand-600 text-white rounded-2xl p-6 mb-4 text-center shadow-sm">
           <p className="text-sm text-white/70 mb-1">Your Balance</p>
           <p className="text-4xl font-semibold">${me.balance.toLocaleString()}</p>
-          <p className="text-sm text-white/60 mt-1">{gameState.roomName}</p>
+          <p className="text-sm text-white/60 mt-1">
+            {gameState.roomName}
+            {myRank > 0 && allSorted.length > 1 && (
+              <span className="ml-2 opacity-80">· #{myRank} of {allSorted.length}</span>
+            )}
+          </p>
         </div>
 
         {/* Other players */}
@@ -299,6 +330,7 @@ export default function PlayerDashboard({ gameState, myInfo, showToast, onLeave,
                     onChange={e => setSendAmt(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && doSend()}
                   />
+                  <QuickAmounts onSelect={setSendAmt} />
                 </div>
                 <button className="btn btn-primary w-full justify-center" onClick={doSend}>
                   <i className="ti ti-send" /> Send
@@ -393,14 +425,16 @@ export default function PlayerDashboard({ gameState, myInfo, showToast, onLeave,
             {myHistory.length === 0 && (
               <p className="text-sm text-gray-400 text-center py-6">No transactions yet</p>
             )}
-            {myHistory.map(tx => {
+            {myHistory.map((tx, idx) => {
               const color  = txColorClass(tx, stableId)
               const label  = txLabel(tx, stableId)
               const sign   = txSign(tx, stableId)
+              const isNew  = idx === 0 && lastSeenTxId.current && tx.id !== lastSeenTxId.current
+              if (idx === 0) lastSeenTxId.current = tx.id
               return (
                 <div
                   key={tx.id}
-                  className="flex items-center justify-between py-2.5 border-b border-gray-50 last:border-0"
+                  className={`flex items-center justify-between py-2.5 border-b border-gray-50 last:border-0 transition-colors duration-1000 ${isNew ? 'bg-green-50 rounded-lg px-2' : ''}`}
                 >
                   <div>
                     <p className="text-sm">{label}</p>
