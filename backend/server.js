@@ -117,7 +117,7 @@ const stableToSocket = {}; // stableId → socketId
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function uid()  { return Math.random().toString(36).substr(2, 6).toUpperCase(); }
 function ts()   {
-  return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" });
 }
 function money(n) { return "$" + Math.abs(n).toLocaleString(); }
 function getRoom(code) { return rooms[code] || null; }
