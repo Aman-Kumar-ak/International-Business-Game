@@ -5,7 +5,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port:       5173,
-    host:       '0.0.0.0',  // allow LAN access during dev
+    host:       '0.0.0.0',   // allow LAN access — phones on same WiFi can open http://192.168.x.x:5173
     strictPort: false,
   },
   preview: {
@@ -13,16 +13,14 @@ export default defineConfig({
     host: '0.0.0.0',
   },
   build: {
-    outDir:          'dist',
-    sourcemap:       false,
-    // Chunk size warning threshold (bytes) — raise if needed
+    outDir:   'dist',
+    sourcemap: false,
     chunkSizeWarningLimit: 600,
     rollupOptions: {
       output: {
-        // Split vendor code from app code for better caching
         manualChunks: {
-          vendor:        ['react', 'react-dom'],
-          socketio:      ['socket.io-client'],
+          vendor:   ['react', 'react-dom'],
+          socketio: ['socket.io-client'],
         },
       },
     },

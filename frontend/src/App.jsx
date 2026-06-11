@@ -81,9 +81,20 @@ export default function App() {
   }, [])
 
   // ── Step 1: Restore persisted session on mount ────────────────────────────
+  const [qrCode, setQrCode] = useState('')
   useEffect(() => {
+    // Check for ?code= from QR scan
+    const params = new URLSearchParams(window.location.search)
+    const scannedCode = params.get('code')
+    if (scannedCode) {
+      setQrCode(scannedCode.toUpperCase())
+      setScreen('join')
+      // Clean URL without reload
+      window.history.replaceState({}, '', window.location.pathname)
+    }
+
     const { screen: s, myInfo: m, gameState: g } = LS.load()
-    if (s && m && IN_GAME_SCREENS.has(s)) {
+    if (!scannedCode && s && m && IN_GAME_SCREENS.has(s)) {
       setScreen(s)
       setMyInfo(m)
       if (g) setGameState(g)
@@ -134,6 +145,32 @@ export default function App() {
       window.removeEventListener('focus', sync)
     }
   }, [])
+
+  // ── Wake Lock — keep screen on during active game ───────────────────────────
+  useEffect(() => {
+    const activeScreens = new Set(['banker', 'player'])
+    if (!activeScreens.has(screen)) return
+    if (!('wakeLock' in navigator)) return   // browser doesn't support it
+
+    let lock = null
+
+    const acquire = async () => {
+      try {
+        lock = await navigator.wakeLock.request('screen')
+      } catch (_) { /* silently ignore — not critical */ }
+    }
+
+    // Re-acquire when tab becomes visible again (required — lock is released on hide)
+    const onVisible = () => { if (!document.hidden) acquire() }
+    document.addEventListener('visibilitychange', onVisible)
+
+    acquire()
+
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible)
+      lock?.release().catch(() => {})
+    }
+  }, [screen])
 
   // ── All socket event handlers (registered once, read state via refs) ──────
   useEffect(() => {
@@ -321,7 +358,7 @@ export default function App() {
     <div className="min-h-screen bg-gray-50">
       {screen === 'home'             && <HomeScreen onCreateGame={() => setScreen('create')} onJoinGame={() => setScreen('join')} />}
       {screen === 'create'           && <CreateGameScreen {...common} onBack={() => setScreen('home')} sessionId={SESSION_ID} />}
-      {screen === 'join'             && <JoinGameScreen   {...common} onBack={() => setScreen('home')} setMyInfo={setMyInfo} sessionId={SESSION_ID} />}
+      {screen === 'join'             && <JoinGameScreen   {...common} onBack={() => setScreen('home')} setMyInfo={setMyInfo} sessionId={SESSION_ID} prefillCode={qrCode} />}
       {screen === 'waiting-code'     && <WaitingCodeScreen {...common} myInfo={myInfo} gameState={gameState} />}
       {screen === 'waiting-approval' && <WaitingApprovalScreen myInfo={myInfo} gameState={gameState} onLeave={handleLeave} />}
       {screen === 'banker'           && <BankerDashboard {...common} gameState={gameState} myInfo={myInfo} onConnectionFailed={handleConnectionFailed} />}

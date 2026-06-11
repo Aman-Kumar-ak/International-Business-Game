@@ -3,7 +3,11 @@ import socket from '../socket'
 import ConfirmModal from './ConfirmModal'
 
 function fmt(n) { return '$' + Math.abs(n).toLocaleString() }
-function haptic(ms = 60) { try { navigator.vibrate?.(ms) } catch (_) {} }
+function haptic(ms = 80) {
+  try {
+    if (localStorage.getItem('ib_vibration') !== 'off') navigator.vibrate?.(ms)
+  } catch (_) {}
+}
 
 function formatTimer(endsAt, now) {
   if (!endsAt) return '--:--'
@@ -59,12 +63,37 @@ export default function PlayerDashboard({ gameState, myInfo, showToast, onLeave,
   const [connectingTooLong, setConnectingTooLong] = useState(false)
   const [confirm, setConfirm] = useState(null)
   const lastSeenTxId = useRef(null)
+  const [vibrationOn, setVibrationOn] = useState(() => localStorage.getItem('ib_vibration') !== 'off')
+
+  const toggleVibration = () => {
+    const next = !vibrationOn
+    setVibrationOn(next)
+    localStorage.setItem('ib_vibration', next ? 'on' : 'off')
+    if (next) navigator.vibrate?.(60) // quick confirm pulse
+  }
 
   useEffect(() => {
     if (!gameState?.endsAt) return
     const id = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(id)
   }, [gameState?.endsAt])
+
+  // Haptic on money received
+  useEffect(() => {
+    const onNotif = ({ message, type }) => {
+      if (type === 'success' && (
+        message.includes('credited') ||
+        message.includes('Received') ||
+        message.includes('received') ||
+        message.includes('Party House') && message.includes('received') ||
+        message.includes('Resort') && message.includes('received')
+      )) {
+        haptic(80)
+      }
+    }
+    socket.on('notification', onNotif)
+    return () => socket.off('notification', onNotif)
+  }, [])
 
   useEffect(() => {
     if (!gameState) return
@@ -126,8 +155,7 @@ export default function PlayerDashboard({ gameState, myInfo, showToast, onLeave,
         confirmLabel: 'Send to All',
         confirmType: 'primary',
         onConfirm: () => {
-          haptic()
-          socket.emit('player_send_all', { amount: amt })
+            socket.emit('player_send_all', { amount: amt })
           setSendAmt('')
           setConfirm(null)
         }
@@ -145,7 +173,6 @@ export default function PlayerDashboard({ gameState, myInfo, showToast, onLeave,
       confirmLabel: 'Send',
       confirmType: 'primary',
       onConfirm: () => {
-        haptic()
         socket.emit('player_send', { toId: sendTo, amount: amt })
         setSendAmt('')
         setConfirm(null)
@@ -228,6 +255,13 @@ export default function PlayerDashboard({ gameState, myInfo, showToast, onLeave,
             {me.cc?.used && me.cc?.remaining > 0 && (
               <span className="badge badge-blue">CC: {me.cc.remaining} left</span>
             )}
+            <button
+              className="btn btn-sm btn-outline"
+              onClick={toggleVibration}
+              title={vibrationOn ? 'Vibration On (tap to disable)' : 'Vibration Off (tap to enable)'}
+            >
+              <i className={`ti ${vibrationOn ? 'ti-device-mobile-vibration' : 'ti-device-mobile-off'}`} />
+            </button>
             <button
               className="btn btn-sm btn-outline-danger"
               onClick={() => setConfirm({
