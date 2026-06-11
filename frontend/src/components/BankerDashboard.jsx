@@ -1,20 +1,11 @@
 import { useEffect, useState } from 'react'
 import socket from '../socket'
 import ConfirmModal from './ConfirmModal'
+import { fmt, formatTimer } from '../utils'
 
 const COLORS = ['#185FA5','#639922','#A32D2D','#854F0B','#533AB7','#0F6E56','#993556','#5F5E5A']
 
-function fmt(n) { return '$' + Math.abs(n).toLocaleString() }
 function initials(name) { return name.slice(0, 2).toUpperCase() }
-
-function formatTimer(endsAt, now) {
-  if (!endsAt) return '--:--'
-  const ms = Math.max(0, new Date(endsAt).getTime() - now)
-  const totalSeconds = Math.max(0, Math.ceil(ms / 1000))
-  const minutes = Math.floor(totalSeconds / 60)
-  const seconds = String(totalSeconds % 60).padStart(2, '0')
-  return `${minutes}:${seconds}`
-}
 
 function bankerHistoryColor(flowType) {
   if (flowType === 'from_bank') return 'text-red-500'
@@ -230,9 +221,39 @@ export default function BankerDashboard({ gameState, myInfo, showToast, onLeave,
             </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            <span className={`badge ${timerColor} text-sm px-3 py-1.5`}>
-              <i className="ti ti-clock" /> {timerLabel}
-            </span>
+            <div className="flex items-center gap-1">
+              <span className={`badge ${timerColor} text-sm px-3 py-1.5`}>
+                <i className="ti ti-clock" /> {timerLabel}
+              </span>
+              <button
+                className="btn btn-sm btn-outline"
+                title="Add 10 minutes"
+                onClick={() => setConfirm({
+                  title: 'Extend Timer',
+                  message: 'Add 10 minutes to the game?',
+                  subMessage: 'All players will see the updated timer.',
+                  confirmLabel: '+10 min',
+                  confirmType: 'success',
+                  onConfirm: () => { socket.emit('extend_timer', { minutes: 10 }); setConfirm(null) }
+                })}
+              >
+                +10m
+              </button>
+              <button
+                className="btn btn-sm btn-outline"
+                title="Add 30 minutes"
+                onClick={() => setConfirm({
+                  title: 'Extend Timer',
+                  message: 'Add 30 minutes to the game?',
+                  subMessage: 'All players will see the updated timer.',
+                  confirmLabel: '+30 min',
+                  confirmType: 'success',
+                  onConfirm: () => { socket.emit('extend_timer', { minutes: 30 }); setConfirm(null) }
+                })}
+              >
+                +30m
+              </button>
+            </div>
             <button
               className="btn btn-sm btn-danger"
               onClick={() => setConfirm({

@@ -1,0 +1,77 @@
+{
+  "VDKTF7": {
+    "roomCode": "VDKTF7",
+    "roomName": "Gvv",
+    "bankerName": "Cccc",
+    "startMoney": 30000,
+    "durationMinutes": 60,
+    "players": [
+      {
+        "stableId": "sess_78clxkoez9a",
+        "id": "sess_78clxkoez9a",
+        "name": "rtyui",
+        "balance": 16844,
+        "cc": {
+          "used": false,
+          "remaining": 0
+        },
+        "jail": false,
+        "passport": true,
+        "history": [
+          {
+            "id": "NYQK2W",
+            "time": "11:17 AM",
+            "fromId": "sess_78clxkoez9a",
+            "fromName": "rtyui",
+            "toId": "bank",
+            "toName": "Bank",
+            "amount": 13156,
+            "flowType": "to_bank"
+          },
+          {
+            "id": "IGFZ04",
+            "time": "11:17 AM",
+            "fromId": "bank",
+            "fromName": "Bank",
+            "toId": "sess_78clxkoez9a",
+            "toName": "rtyui",
+            "amount": 30000,
+            "flowType": "from_bank"
+          }
+        ],
+        "pending": false,
+        "socketId": "a_qziznmRkMpeSoGAAAR",
+        "online": true,
+        "lastSeenAt": 1781157287378
+      }
+    ],
+    "transactions": [
+      {
+        "id": "NYQK2W",
+        "time": "11:17 AM",
+        "fromId": "sess_78clxkoez9a",
+        "fromName": "rtyui",
+        "toId": "bank",
+        "toName": "Bank",
+        "amount": 13156,
+        "flowType": "to_bank"
+      },
+      {
+        "id": "IGFZ04",
+        "time": "11:17 AM",
+        "fromId": "bank",
+        "fromName": "Bank",
+        "toId": "sess_78clxkoez9a",
+        "toName": "rtyui",
+        "amount": 30000,
+        "flowType": "from_bank"
+      }
+    ],
+    "round": 1,
+    "started": true,
+    "startedAt": "2026-06-11T05:47:35.747Z",
+    "endsAt": "2026-06-11T06:47:35.747Z",
+    "bankerSessionId": "sess_llp9op15gu",
+    "createdAt": 1781156843824
+  }
+}

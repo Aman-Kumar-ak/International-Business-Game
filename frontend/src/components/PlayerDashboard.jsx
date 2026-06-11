@@ -1,21 +1,50 @@
 import { useEffect, useRef, useState } from 'react'
 import socket from '../socket'
 import ConfirmModal from './ConfirmModal'
+import { fmt, formatTimer } from '../utils'
 
-function fmt(n) { return '$' + Math.abs(n).toLocaleString() }
 function haptic(ms = 80) {
   try {
     if (localStorage.getItem('ib_vibration') !== 'off') navigator.vibrate?.(ms)
   } catch (_) {}
 }
 
-function formatTimer(endsAt, now) {
-  if (!endsAt) return '--:--'
-  const ms = Math.max(0, new Date(endsAt).getTime() - now)
-  const totalSeconds = Math.max(0, Math.ceil(ms / 1000))
-  const minutes = Math.floor(totalSeconds / 60)
-  const seconds = String(totalSeconds % 60).padStart(2, '0')
-  return `${minutes}:${seconds}`
+// ── Animated balance counter ──────────────────────────────────────────────────
+// Counts from the previous value to the new one over ~600ms.
+function useAnimatedBalance(target) {
+  const [display, setDisplay] = useState(target)
+  const prevRef  = useRef(target)
+  const rafRef   = useRef(null)
+
+  useEffect(() => {
+    const start = prevRef.current
+    const end   = target
+    if (start === end) return
+
+    prevRef.current = end
+
+    const duration = 600
+    const startTime = performance.now()
+
+    const tick = (now) => {
+      const elapsed  = now - startTime
+      const progress = Math.min(elapsed / duration, 1)
+      // ease-out cubic
+      const eased = 1 - Math.pow(1 - progress, 3)
+      const value = Math.round(start + (end - start) * eased)
+      setDisplay(value)
+      if (progress < 1) {
+        rafRef.current = requestAnimationFrame(tick)
+      }
+    }
+
+    if (rafRef.current) cancelAnimationFrame(rafRef.current)
+    rafRef.current = requestAnimationFrame(tick)
+
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current) }
+  }, [target])
+
+  return display
 }
 
 function txColorClass(tx, myStableId) {
@@ -65,11 +94,31 @@ export default function PlayerDashboard({ gameState, myInfo, showToast, onLeave,
   const lastSeenTxId = useRef(null)
   const [vibrationOn, setVibrationOn] = useState(() => localStorage.getItem('ib_vibration') !== 'off')
 
+  // ── Determine live balance for animation target ────────────────────────────
+  const stableId  = myInfo?.stableId
+  const me        = gameState?.players?.find(p => p.stableId === stableId || p.id === stableId)
+  const liveBalance = me?.balance ?? 0
+  const animatedBalance = useAnimatedBalance(liveBalance)
+
+  // ── Flash colour on balance change ────────────────────────────────────────
+  const prevBalanceRef  = useRef(liveBalance)
+  const [flashClass, setFlashClass] = useState('')
+  useEffect(() => {
+    if (!me) return
+    const prev = prevBalanceRef.current
+    if (prev === liveBalance) return
+    prevBalanceRef.current = liveBalance
+    const gained = liveBalance > prev
+    setFlashClass(gained ? 'balance-flash-green' : 'balance-flash-red')
+    const t = setTimeout(() => setFlashClass(''), 900)
+    return () => clearTimeout(t)
+  }, [liveBalance, me])
+
   const toggleVibration = () => {
     const next = !vibrationOn
     setVibrationOn(next)
     localStorage.setItem('ib_vibration', next ? 'on' : 'off')
-    if (next) navigator.vibrate?.(60) // quick confirm pulse
+    if (next) navigator.vibrate?.(60)
   }
 
   useEffect(() => {
@@ -84,9 +133,7 @@ export default function PlayerDashboard({ gameState, myInfo, showToast, onLeave,
       if (type === 'success' && (
         message.includes('credited') ||
         message.includes('Received') ||
-        message.includes('received') ||
-        message.includes('Party House') && message.includes('received') ||
-        message.includes('Resort') && message.includes('received')
+        message.includes('received')
       )) {
         haptic(80)
       }
@@ -97,19 +144,15 @@ export default function PlayerDashboard({ gameState, myInfo, showToast, onLeave,
 
   useEffect(() => {
     if (!gameState) return
-    const stableId = myInfo?.stableId
-    const me = gameState.players?.find(p => p.stableId === stableId || p.id === stableId)
-    if (me) { setConnectingTooLong(false); return }
+    const found = gameState.players?.find(p => p.stableId === stableId || p.id === stableId)
+    if (found) { setConnectingTooLong(false); return }
     const t = setTimeout(() => setConnectingTooLong(true), 10000)
     return () => clearTimeout(t)
-  }, [gameState, myInfo])
+  }, [gameState, stableId])
 
   if (!gameState) {
     return <div className="min-h-screen flex items-center justify-center text-gray-400">Loading…</div>
   }
-
-  const stableId = myInfo?.stableId
-  const me = gameState.players?.find(p => p.stableId === stableId || p.id === stableId)
 
   if (!me) {
     return (
@@ -155,7 +198,7 @@ export default function PlayerDashboard({ gameState, myInfo, showToast, onLeave,
         confirmLabel: 'Send to All',
         confirmType: 'primary',
         onConfirm: () => {
-            socket.emit('player_send_all', { amount: amt })
+          socket.emit('player_send_all', { amount: amt })
           setSendAmt('')
           setConfirm(null)
         }
@@ -231,6 +274,22 @@ export default function PlayerDashboard({ gameState, myInfo, showToast, onLeave,
 
   return (
     <div className="min-h-screen bg-gray-50 pb-10">
+      {/* Keyframes injected once */}
+      <style>{`
+        @keyframes balanceFlashGreen {
+          0%   { box-shadow: 0 0 0 0 rgba(34,197,94,0.5); }
+          50%  { box-shadow: 0 0 0 12px rgba(34,197,94,0); }
+          100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); }
+        }
+        @keyframes balanceFlashRed {
+          0%   { box-shadow: 0 0 0 0 rgba(239,68,68,0.5); }
+          50%  { box-shadow: 0 0 0 12px rgba(239,68,68,0); }
+          100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
+        }
+        .balance-flash-green { animation: balanceFlashGreen 0.9s ease-out; }
+        .balance-flash-red   { animation: balanceFlashRed   0.9s ease-out; }
+      `}</style>
+
       {/* Header */}
       <div className="bg-white border-b border-gray-100 px-4 py-3 sticky top-0 z-10">
         <div className="flex items-center justify-between max-w-lg mx-auto gap-2 flex-wrap">
@@ -280,10 +339,10 @@ export default function PlayerDashboard({ gameState, myInfo, showToast, onLeave,
       </div>
 
       <div className="max-w-lg mx-auto px-4 pt-4">
-        {/* Balance card */}
-        <div className="bg-brand-600 text-white rounded-2xl p-6 mb-4 text-center shadow-sm">
+        {/* Balance card — animated */}
+        <div className={`bg-brand-600 text-white rounded-2xl p-6 mb-4 text-center shadow-sm transition-all ${flashClass}`}>
           <p className="text-sm text-white/70 mb-1">Your Balance</p>
-          <p className="text-4xl font-semibold">${me.balance.toLocaleString()}</p>
+          <p className="text-4xl font-semibold tabular-nums">${animatedBalance.toLocaleString()}</p>
           <p className="text-sm text-white/60 mt-1">
             {gameState.roomName}
             {myRank > 0 && allSorted.length > 1 && (
@@ -349,7 +408,7 @@ export default function PlayerDashboard({ gameState, myInfo, showToast, onLeave,
                     )}
                     {others.map(p => (
                       <option key={p.stableId || p.id} value={p.stableId || p.id}>
-                        {p.name} (${p.balance.toLocaleString()})
+                        {p.name} (${p.balance.toLocaleString()}){!p.online ? ' 🔴' : ''}
                       </option>
                     ))}
                   </select>
@@ -450,7 +509,7 @@ export default function PlayerDashboard({ gameState, myInfo, showToast, onLeave,
           </div>
         )}
 
-        {/* History — only THIS player's transactions */}
+        {/* History */}
         {tab === 'history' && (
           <div className="card">
             <p className="text-xs text-gray-400 uppercase tracking-wide font-medium mb-3">
@@ -484,7 +543,6 @@ export default function PlayerDashboard({ gameState, myInfo, showToast, onLeave,
         )}
       </div>
 
-      {/* Custom confirmation modal */}
       {confirm && (
         <ConfirmModal
           title={confirm.title}

@@ -265,7 +265,7 @@ export default function App() {
 
     // ── Game ended ────────────────────────────────────────────────────────────
     const onGameEnded = ({ players }) => {
-      setEndData(players)
+      setEndData({ players, startMoney: gameStateRef.current?.startMoney })
       setScreen('end')
       LS.clear()
     }
@@ -363,7 +363,7 @@ export default function App() {
       {screen === 'waiting-approval' && <WaitingApprovalScreen myInfo={myInfo} gameState={gameState} onLeave={handleLeave} />}
       {screen === 'banker'           && <BankerDashboard {...common} gameState={gameState} myInfo={myInfo} onConnectionFailed={handleConnectionFailed} />}
       {screen === 'player'           && <PlayerDashboard {...common} gameState={gameState} myInfo={myInfo} onConnectionFailed={handleConnectionFailed} />}
-      {screen === 'end'              && <EndGameScreen players={endData} onNewGame={resetAll} />}
+      {screen === 'end'              && <EndGameScreen players={endData?.players} startMoney={endData?.startMoney} onNewGame={resetAll} />}
 
       {toast && <Toast key={toast.key} msg={toast.msg} type={toast.type} onDone={() => setToast(null)} />}
     </div>

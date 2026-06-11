@@ -48,6 +48,67 @@ app.get("/", (req, res) => {
   });
 });
 
+// ─── State persistence ────────────────────────────────────────────────────────
+// Writes active room state to disk every 30 s so a server restart can
+// restore in-progress games.  Players reconnect via their existing stableId /
+// SESSION_ID and the reconnect_player / reconnect_banker events.
+const fs         = require("fs");
+const path       = require("path");
+const STATE_FILE = path.join(__dirname, ".game-state.json");
+
+function persistState() {
+  try {
+    // Strip runtime-only fields that can't survive a restart
+    const snapshot = {};
+    Object.entries(rooms).forEach(([code, room]) => {
+      if (!room.started) return; // don't persist lobby rooms
+      snapshot[code] = {
+        ...room,
+        _autoEndTimer: undefined, // can't serialise a timer handle
+      };
+    });
+    fs.writeFileSync(STATE_FILE, JSON.stringify(snapshot, null, 2), "utf8");
+  } catch (e) {
+    console.error("[persist] write failed:", e.message);
+  }
+}
+
+function loadPersistedState() {
+  try {
+    if (!fs.existsSync(STATE_FILE)) return;
+    const raw  = fs.readFileSync(STATE_FILE, "utf8");
+    const data = JSON.parse(raw);
+    const now  = Date.now();
+    let loaded = 0;
+    Object.entries(data).forEach(([code, room]) => {
+      // Drop rooms whose timer already expired
+      if (room.endsAt && new Date(room.endsAt).getTime() < now) return;
+      // Mark all players offline — they must reconnect
+      room.players.forEach(p => { p.online = false; p.socketId = null; });
+      rooms[code] = room;
+      // Re-arm the auto-end timer
+      scheduleAutoEnd(room);
+      loaded++;
+    });
+    if (loaded > 0) console.log(`[persist] restored ${loaded} room(s) from disk`);
+    // Clean up the file after loading
+    fs.unlinkSync(STATE_FILE);
+  } catch (e) {
+    console.error("[persist] load failed:", e.message);
+  }
+}
+
+// Persist every 30 seconds
+setInterval(persistState, 30_000);
+
+// Persist on clean shutdown (SIGTERM from Render, Ctrl+C, etc.)
+["SIGTERM", "SIGINT"].forEach(sig => {
+  process.on(sig, () => {
+    persistState();
+    process.exit(0);
+  });
+});
+
 // ─── In-memory state ──────────────────────────────────────────────────────────
 const rooms        = {};  // roomCode  → room object
 const socketMap    = {};  // socketId  → { roomCode, stableId, isBanker }
@@ -215,6 +276,7 @@ function cleanupRoom(roomCode) {
   room.players.forEach(p => delete stableToSocket[p.stableId]);
   delete stableToSocket[room.bankerSessionId];
   delete rooms[roomCode];
+  persistState(); // keep saved file in sync after room removal
 }
 
 // ── Stale room cleanup (runs every 10 min) ────────────────────────────────────
@@ -235,6 +297,9 @@ setInterval(() => {
     }
   });
 }, 10 * 60 * 1000);
+
+// ─── Restore persisted state (runs after all helpers are defined) ────────────
+loadPersistedState();
 
 // ─── Socket.io events ─────────────────────────────────────────────────────────
 io.on("connection", socket => {
@@ -621,6 +686,28 @@ io.on("connection", socket => {
     if (!room) return;
     room.round = Math.max(1, parseInt(round) || 1);
     broadcast(meta.roomCode);
+  });
+
+  // ── EXTEND TIMER ──────────────────────────────────────────────────────────────
+  socket.on("extend_timer", ({ minutes }) => {
+    const meta = socketMap[socket.id];
+    if (!meta?.isBanker) return;
+    const room = getRoom(meta.roomCode);
+    if (!room || !room.started) return;
+
+    const mins = Math.max(1, Math.min(120, parseInt(minutes) || 10));
+    const addMs = mins * 60 * 1000;
+
+    // Extend endsAt
+    const currentEnd = room.endsAt ? new Date(room.endsAt).getTime() : Date.now();
+    room.endsAt = new Date(Math.max(currentEnd, Date.now()) + addMs).toISOString();
+
+    // Cancel old auto-end, schedule new one
+    if (room._autoEndTimer) clearTimeout(room._autoEndTimer);
+    scheduleAutoEnd(room);
+
+    notifyRoom(meta.roomCode, `⏱ ${mins} minutes added to the game!`, "success");
+    broadcastNow(meta.roomCode);
   });
 
   // ── END GAME ──────────────────────────────────────────────────────────────────

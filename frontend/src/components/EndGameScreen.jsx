@@ -1,4 +1,4 @@
-export default function EndGameScreen({ players, onNewGame }) {
+export default function EndGameScreen({ players, startMoney, onNewGame }) {
   const medals = ['🥇', '🥈', '🥉']
 
   return (
@@ -16,30 +16,45 @@ export default function EndGameScreen({ players, onNewGame }) {
         </div>
 
         <div className="space-y-0 mb-6">
-          {(players || []).map((p, i) => (
-            <div
-              key={p.stableId || p.id}
-              className={`flex items-center justify-between py-3 border-b border-gray-100 last:border-0 ${
-                i === 0 ? 'bg-amber-50 -mx-5 px-5 rounded-lg' : ''
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <span className="text-xl w-8 text-center">
-                  {medals[i] || `${i + 1}.`}
-                </span>
-                <span className={`text-sm ${i === 0 ? 'font-semibold' : ''}`}>
-                  {p.name}
-                </span>
-              </div>
-              <span
-                className={`font-semibold ${
-                  i === 0 ? 'text-brand-600 text-base' : 'text-sm text-gray-600'
+          {(players || []).map((p, i) => {
+            const delta    = startMoney != null ? p.balance - startMoney : null
+            const positive = delta != null && delta >= 0
+            const deltaStr = delta != null
+              ? (positive ? '+' : '') + '$' + Math.abs(delta).toLocaleString()
+              : null
+
+            return (
+              <div
+                key={p.stableId || p.id}
+                className={`flex items-center justify-between py-3 border-b border-gray-100 last:border-0 ${
+                  i === 0 ? 'bg-amber-50 -mx-5 px-5 rounded-lg' : ''
                 }`}
               >
-                ${p.balance.toLocaleString()}
-              </span>
-            </div>
-          ))}
+                <div className="flex items-center gap-3">
+                  <span className="text-xl w-8 text-center">
+                    {medals[i] || `${i + 1}.`}
+                  </span>
+                  <div>
+                    <span className={`text-sm ${i === 0 ? 'font-semibold' : ''}`}>
+                      {p.name}
+                    </span>
+                    {deltaStr && (
+                      <p className={`text-xs mt-0.5 font-medium ${positive ? 'text-green-600' : 'text-red-500'}`}>
+                        {deltaStr} vs start
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <span
+                  className={`font-semibold ${
+                    i === 0 ? 'text-brand-600 text-base' : 'text-sm text-gray-600'
+                  }`}
+                >
+                  ${p.balance.toLocaleString()}
+                </span>
+              </div>
+            )
+          })}
 
           {(!players || players.length === 0) && (
             <p className="text-sm text-gray-400 text-center py-4">No results available</p>
