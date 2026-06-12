@@ -55,6 +55,8 @@ function txColorClass(tx, myStableId) {
 }
 
 function txLabel(tx, myStableId) {
+  if (tx.txType === 'cc_installment') return `CC Instalment → Bank`
+  if (tx.txType === 'cc_loan')        return `CC Loan from Bank`
   if (tx.flowType === 'from_bank') return `Credited by Bank`
   if (tx.flowType === 'to_bank')   return `Paid to Bank`
   if (tx.toId === myStableId)      return `Received from ${tx.fromName}`
@@ -339,10 +341,10 @@ export default function PlayerDashboard({ gameState, myInfo, showToast, onLeave,
           {/* Row 2: Status badges — wraps independently, never affects button positions */}
           {(me.jail || !me.passport || (me.cc?.used && me.cc?.remaining > 0)) && (
             <div className="flex items-center gap-1.5 flex-wrap mt-2">
-              {me.jail && <span className="badge badge-red">In Jail</span>}
-              {!me.passport && <span className="badge badge-amber">Passport Suspended</span>}
+              {me.jail && <span className="badge badge-red"><i className="ti ti-lock text-xs" /> In Jail</span>}
+              {!me.passport && <span className="badge badge-amber"><i className="ti ti-id-badge-off text-xs" /> Passport Suspended</span>}
               {me.cc?.used && me.cc?.remaining > 0 && (
-                <span className="badge badge-blue">CC: {me.cc.remaining} left</span>
+                <span className="badge badge-blue"><i className="ti ti-credit-card text-xs" /> CC: {me.cc.remaining} left</span>
               )}
             </div>
           )}
@@ -376,8 +378,12 @@ export default function PlayerDashboard({ gameState, myInfo, showToast, onLeave,
                     {p.name}
                     {!p.online && <span className="text-xs text-gray-400 ml-1">🔴 Offline</span>}
                   </span>
-                  {p.jail && <span className="badge badge-red text-xs">Jail</span>}
-                  {!p.passport && <span className="badge badge-amber text-xs">No Passport</span>}
+                  {p.jail && <span className="badge badge-red text-xs"><i className="ti ti-lock text-xs" /> Jail</span>}
+                  {!p.passport && (
+                    <span className="badge badge-amber text-xs" title="Cannot receive money until passport is restored">
+                      <i className="ti ti-id-badge-off text-xs" /> Passport Suspended
+                    </span>
+                  )}
                 </div>
                 <span className={`text-sm font-semibold ${!p.online ? 'text-gray-400' : 'text-brand-600'}`}>
                   ${p.balance.toLocaleString()}
@@ -418,8 +424,8 @@ export default function PlayerDashboard({ gameState, myInfo, showToast, onLeave,
                       <option value="all_players">⚡ All Players (×{others.length})</option>
                     )}
                     {others.map(p => (
-                      <option key={p.stableId || p.id} value={p.stableId || p.id}>
-                        {p.name} (${p.balance.toLocaleString()}){!p.online ? ' 🔴' : ''}
+                      <option key={p.stableId || p.id} value={p.stableId || p.id} disabled={!p.passport}>
+                        {p.name} (${p.balance.toLocaleString()}){!p.online ? ' 🔴' : ''}{!p.passport ? ' 🚫 Passport Suspended' : ''}
                       </option>
                     ))}
                   </select>
@@ -461,6 +467,22 @@ export default function PlayerDashboard({ gameState, myInfo, showToast, onLeave,
                 <p className="text-xs text-gray-400 mt-2">Or roll 12 on the board for free release</p>
               </div>
             )}
+
+            {!me.passport && (
+              <div className="card" style={{borderColor:'#fcd34d'}}>
+                <div className="flex items-start gap-3">
+                  <div className="w-9 h-9 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+                    <i className="ti ti-id-badge-off text-amber-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold text-amber-800">Your Passport is Suspended</h3>
+                    <p className="text-xs text-amber-700 mt-1">
+                      Other players cannot send money to you until the banker restores your passport. You can still send money to others.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -469,52 +491,129 @@ export default function PlayerDashboard({ gameState, myInfo, showToast, onLeave,
           <div className="space-y-4">
             {!me.cc?.used && (
               <div className="card">
-                <div className="bg-gradient-to-br from-brand-600 to-brand-800 text-white rounded-xl p-5 mb-4">
-                  <p className="text-sm text-white/70">Credit Card</p>
-                  <p className="text-2xl font-semibold mt-1">$10,000 Available</p>
-                  <p className="text-xs text-white/60 mt-1">Repay $2,000 × 6 = $12,000 total</p>
+                {/* Visual credit card */}
+                <div className="relative bg-gradient-to-br from-brand-600 via-brand-700 to-brand-900 text-white rounded-2xl p-5 mb-4 overflow-hidden shadow-lg">
+                  {/* Decorative circles */}
+                  <div className="absolute -top-6 -right-6 w-28 h-28 rounded-full bg-white/10" />
+                  <div className="absolute -bottom-8 -right-2 w-20 h-20 rounded-full bg-white/10" />
+                  <div className="flex justify-between items-start mb-6 relative z-10">
+                    <div>
+                      <p className="text-xs text-white/60 uppercase tracking-widest font-medium">Credit Card</p>
+                      <p className="text-3xl font-bold mt-1 tabular-nums">$10,000</p>
+                    </div>
+                    <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
+                      <i className="ti ti-credit-card text-lg" />
+                    </div>
+                  </div>
+                  <div className="relative z-10">
+                    <p className="text-xs text-white/60">Repayment: 6 × $2,000</p>
+                    <p className="text-sm font-medium text-white/80 mt-0.5">Total owed: $12,000</p>
+                  </div>
                 </div>
-                <p className="text-sm text-gray-500 mb-4">
-                  Take a one-time $10,000 loan from the bank. You must repay $2,000 six times.
-                </p>
-                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
-                  <p className="text-xs text-amber-700 font-medium">⚠️ This action requires confirmation</p>
-                  <p className="text-xs text-amber-600 mt-0.5">You'll owe $12,000 total — $2,000 more than you receive.</p>
+
+                {/* Info breakdown */}
+                <div className="bg-gray-50 rounded-xl p-4 mb-4 space-y-2.5">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-500 flex items-center gap-1.5"><i className="ti ti-coins text-gray-400" /> You receive</span>
+                    <span className="font-semibold text-green-600">+$10,000</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-500 flex items-center gap-1.5"><i className="ti ti-repeat text-gray-400" /> Instalments</span>
+                    <span className="font-medium">6 × $2,000</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-500 flex items-center gap-1.5"><i className="ti ti-percentage text-gray-400" /> Interest (flat)</span>
+                    <span className="font-medium text-red-400">+$2,000</span>
+                  </div>
+                  <div className="border-t border-gray-200 pt-2 flex justify-between text-sm">
+                    <span className="text-gray-500 flex items-center gap-1.5"><i className="ti ti-receipt text-gray-400" /> Total repayment</span>
+                    <span className="font-semibold text-red-500">$12,000</span>
+                  </div>
                 </div>
+
+                <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4">
+                  <i className="ti ti-alert-triangle text-amber-500 mt-0.5 flex-shrink-0" />
+                  <p className="text-xs text-amber-700">One-time loan. You pay $2,000 more than you borrow. This cannot be undone.</p>
+                </div>
+
                 <button className="btn btn-primary w-full justify-center" onClick={takeCC}>
-                  <i className="ti ti-credit-card" /> Take Credit Card Loan
+                  <i className="ti ti-credit-card" /> Take $10,000 Credit Card Loan
                 </button>
               </div>
             )}
 
             {me.cc?.used && me.cc?.remaining > 0 && (
               <div className="card">
-                <div className="bg-gradient-to-br from-amber-500 to-amber-700 text-white rounded-xl p-5 mb-4">
-                  <p className="text-sm text-white/70">Credit Card — Active</p>
-                  <p className="text-2xl font-semibold mt-1">{me.cc.remaining} payments left</p>
-                  <p className="text-xs text-white/60 mt-1">${(me.cc.remaining * 2000).toLocaleString()} remaining</p>
+                {/* Active card with progress */}
+                <div className="relative bg-gradient-to-br from-amber-500 via-amber-600 to-orange-700 text-white rounded-2xl p-5 mb-4 overflow-hidden shadow-lg">
+                  <div className="absolute -top-6 -right-6 w-28 h-28 rounded-full bg-white/10" />
+                  <div className="absolute -bottom-8 -right-2 w-20 h-20 rounded-full bg-white/10" />
+                  <div className="flex justify-between items-start mb-4 relative z-10">
+                    <div>
+                      <p className="text-xs text-white/60 uppercase tracking-widest font-medium">Credit Card — Active</p>
+                      <p className="text-3xl font-bold mt-1 tabular-nums">{me.cc.remaining} left</p>
+                      <p className="text-sm text-white/70 mt-0.5">of 6 instalments</p>
+                    </div>
+                    <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
+                      <i className="ti ti-credit-card text-lg" />
+                    </div>
+                  </div>
+                  {/* Progress bar */}
+                  <div className="relative z-10">
+                    <div className="flex justify-between text-xs text-white/60 mb-1">
+                      <span>{6 - me.cc.remaining} paid</span>
+                      <span>{me.cc.remaining} remaining</span>
+                    </div>
+                    <div className="h-2 bg-white/20 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-white rounded-full transition-all duration-500"
+                        style={{ width: `${((6 - me.cc.remaining) / 6) * 100}%` }}
+                      />
+                    </div>
+                  </div>
                 </div>
-                <div className="bg-gray-50 rounded-lg p-3 mb-4 space-y-1.5">
+
+                {/* Breakdown */}
+                <div className="bg-gray-50 rounded-xl p-4 mb-4 space-y-2.5">
                   <div className="flex justify-between text-sm">
-                    <span className="text-gray-500">Remaining instalments</span>
+                    <span className="text-gray-500 flex items-center gap-1.5"><i className="ti ti-repeat text-gray-400" /> Remaining instalments</span>
                     <span className="font-medium">{me.cc.remaining} × $2,000</span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-gray-500">Total still owed</span>
-                    <span className="font-medium">${(me.cc.remaining * 2000).toLocaleString()}</span>
+                    <span className="text-gray-500 flex items-center gap-1.5"><i className="ti ti-check text-gray-400" /> Paid so far</span>
+                    <span className="font-medium text-green-600">{6 - me.cc.remaining} × $2,000 = ${((6 - me.cc.remaining) * 2000).toLocaleString()}</span>
                   </div>
+                  <div className="flex justify-between text-sm border-t border-gray-200 pt-2.5">
+                    <span className="text-gray-500 flex items-center gap-1.5"><i className="ti ti-receipt text-gray-400" /> Still owed to bank</span>
+                    <span className="font-semibold text-red-500">${(me.cc.remaining * 2000).toLocaleString()}</span>
+                  </div>
+                  <p className="text-xs text-gray-400">Includes $10,000 principal + $2,000 interest = $12,000 total</p>
                 </div>
-                <button className="btn btn-primary" onClick={repayCC}>
+
+                {me.balance < 2000 && (
+                  <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3 mb-4">
+                    <i className="ti ti-alert-circle text-red-500 mt-0.5 flex-shrink-0" />
+                    <p className="text-xs text-red-700">Not enough balance to pay this instalment (need $2,000).</p>
+                  </div>
+                )}
+
+                <button
+                  className="btn btn-primary w-full justify-center"
+                  onClick={repayCC}
+                  disabled={me.balance < 2000}
+                >
                   <i className="ti ti-cash" /> Pay $2,000 Instalment
                 </button>
               </div>
             )}
 
             {me.cc?.used && me.cc?.remaining === 0 && (
-              <div className="card text-center py-8">
-                <div className="text-4xl mb-3">✅</div>
-                <p className="font-semibold text-green-700">Credit Card Cleared!</p>
-                <p className="text-sm text-gray-400 mt-1">All 6 payments completed</p>
+              <div className="card text-center py-10">
+                <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-4">
+                  <i className="ti ti-circle-check text-3xl text-green-600" />
+                </div>
+                <p className="font-semibold text-green-700 text-lg">Credit Card Cleared!</p>
+                <p className="text-sm text-gray-400 mt-1">All 6 instalments paid in full</p>
               </div>
             )}
           </div>

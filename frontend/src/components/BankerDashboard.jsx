@@ -14,7 +14,10 @@ function bankerHistoryColor(flowType) {
 }
 
 function flowLabel(tx) {
-  return `${tx.fromName || 'Unknown'} → ${tx.toName || 'Unknown'}`
+  const base = `${tx.fromName || 'Unknown'} → ${tx.toName || 'Unknown'}`
+  if (tx.txType === 'cc_installment') return `${base} (CC Instalment)`
+  if (tx.txType === 'cc_loan')        return `${base} (CC Loan)`
+  return base
 }
 
 function QuickAmounts({ onSelect }) {
@@ -329,10 +332,10 @@ export default function BankerDashboard({ gameState, myInfo, showToast, onLeave,
                       {!p.online && <span className="text-xs text-gray-400 ml-1">🔴 Offline</span>}
                     </div>
                     <div className="flex gap-1 mt-0.5 flex-wrap">
-                      {p.jail && <span className="badge badge-red text-xs">In Jail</span>}
-                      {!p.passport && <span className="badge badge-amber text-xs">Passport Suspended</span>}
-                      {p.cc?.used && p.cc?.remaining > 0 && <span className="badge badge-blue text-xs">CC: {p.cc.remaining} left</span>}
-                      {p.cc?.used && p.cc?.remaining === 0 && <span className="badge badge-green text-xs">CC Cleared</span>}
+                      {p.jail && <span className="badge badge-red text-xs"><i className="ti ti-lock text-xs" /> In Jail</span>}
+                      {!p.passport && <span className="badge badge-amber text-xs"><i className="ti ti-id-badge-off text-xs" /> Passport Suspended</span>}
+                      {p.cc?.used && p.cc?.remaining > 0 && <span className="badge badge-blue text-xs"><i className="ti ti-credit-card text-xs" /> CC: {p.cc.remaining} left</span>}
+                      {p.cc?.used && p.cc?.remaining === 0 && <span className="badge badge-green text-xs"><i className="ti ti-circle-check text-xs" /> CC Cleared</span>}
                     </div>
                     {(() => {
                       const lastTx = allTransactions.find(tx => tx.fromId === pid(p) || tx.toId === pid(p))

@@ -223,7 +223,7 @@ function flowType(fromId, toId) {
   return "player_to_player";
 }
 
-function addTx(room, { fromId, toId, amount, participantIds }) {
+function addTx(room, { fromId, toId, amount, participantIds, txType }) {
   const tx = {
     id:       uid(),
     time:     ts(),
@@ -233,6 +233,7 @@ function addTx(room, { fromId, toId, amount, participantIds }) {
     toName:   playerName(room, toId),
     amount:   Math.abs(parseInt(amount) || 0),
     flowType: flowType(fromId, toId),
+    txType:   txType || null,
   };
 
   room.transactions.unshift(tx);
@@ -259,9 +260,11 @@ function scheduleAutoEnd(room) {
   room._autoEndTimer = setTimeout(() => {
     const r = getRoom(room.roomCode);
     if (!r || !r.started) return;
+    const netWorth = (p) => p.balance - (p.cc?.remaining || 0) * 2000;
     const players = r.players
       .filter(p => !p.pending)
-      .sort((a, b) => b.balance - a.balance);
+      .map(p => ({ ...p, ccDebt: (p.cc?.remaining || 0) * 2000, netWorth: netWorth(p) }))
+      .sort((a, b) => b.netWorth - a.netWorth);
     io.to(r.roomCode).emit("game_ended", { players });
     io.to(r.roomCode).emit("notification", { message: "Time's up! Game over.", type: "info" });
     cleanupRoom(r.roomCode);
@@ -716,7 +719,11 @@ io.on("connection", socket => {
     if (!meta?.isBanker) return;
     const room = getRoom(meta.roomCode);
     if (!room) return;
-    const players = room.players.filter(p => !p.pending).sort((a, b) => b.balance - a.balance);
+    const netWorth = (p) => p.balance - (p.cc?.remaining || 0) * 2000;
+    const players = room.players
+      .filter(p => !p.pending)
+      .map(p => ({ ...p, ccDebt: (p.cc?.remaining || 0) * 2000, netWorth: netWorth(p) }))
+      .sort((a, b) => b.netWorth - a.netWorth);
     io.to(meta.roomCode).emit("game_ended", { players });
     cleanupRoom(meta.roomCode);
   });
@@ -744,6 +751,12 @@ io.on("connection", socket => {
     } else {
       const to = room.players.find(p => (p.stableId === toId || p.id === toId) && !p.pending);
       if (!to) { me.balance += amt; socket.emit("error", { message: "Player not found." }); return; }
+      // Block transfer if recipient's passport is suspended
+      if (to.passport === false) {
+        me.balance += amt;
+        socket.emit("error", { message: `${to.name}'s passport is suspended. They cannot receive money until it is restored.` });
+        return;
+      }
       to.balance += amt;
       addTx(room, { fromId: me.stableId, toId: to.stableId, amount: amt, participantIds: [me.stableId, to.stableId] });
       notifyStable(me.stableId, `Sent ${money(amt)} to ${to.name}.`,    "info");
@@ -767,7 +780,7 @@ io.on("connection", socket => {
     if (amt <= 0) { socket.emit("error", { message: "Enter a valid amount." }); return; }
 
     const recipients = room.players.filter(p =>
-      p.stableId !== meta.stableId && p.id !== meta.stableId && !p.pending
+      p.stableId !== meta.stableId && p.id !== meta.stableId && !p.pending && p.passport !== false
     );
     if (recipients.length === 0) { socket.emit("error", { message: "No other players found." }); return; }
 
@@ -797,7 +810,7 @@ io.on("connection", socket => {
 
     me.balance += 10000;
     me.cc = { used: true, remaining: 6 };
-    addTx(room, { fromId: "bank", toId: me.stableId, amount: 10000, participantIds: [me.stableId] });
+    addTx(room, { fromId: "bank", toId: me.stableId, amount: 10000, participantIds: [me.stableId], txType: "cc_loan" });
     notifyStable(me.stableId, "Credit card loan of $10,000 credited.", "success");
     broadcast(meta.roomCode);
   });
@@ -814,7 +827,7 @@ io.on("connection", socket => {
 
     me.balance     -= 2000;
     me.cc.remaining--;
-    addTx(room, { fromId: me.stableId, toId: "bank", amount: 2000, participantIds: [me.stableId] });
+    addTx(room, { fromId: me.stableId, toId: "bank", amount: 2000, participantIds: [me.stableId], txType: "cc_installment" });
     notifyStable(me.stableId, `CC repayment of $2,000 paid. ${me.cc.remaining} left.`, "info");
     broadcast(meta.roomCode);
   });
