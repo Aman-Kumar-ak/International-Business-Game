@@ -292,49 +292,60 @@ export default function PlayerDashboard({ gameState, myInfo, showToast, onLeave,
 
       {/* Header */}
       <div className="bg-white border-b border-gray-100 px-4 py-3 sticky top-0 z-10">
-        <div className="flex items-center justify-between max-w-lg mx-auto gap-2 flex-wrap">
-          <div>
-            <h1 className="text-base font-semibold">Hi, {me.name}!</h1>
-            <div className="flex items-center gap-2 mt-1">
-              <p className="text-xs text-gray-400">{gameState.roomName} · <span className={timerColor + ' font-medium'}>{timerLabel}</span></p>
-              {myInfo?.roomCode && (
-                <span
-                  className="cursor-pointer group badge badge-blue text-xs px-2 py-0.5 font-mono"
-                  onClick={copyCode}
-                  title="Click to copy room code"
-                >
-                  <i className="ti ti-copy text-xs" /> {myInfo.roomCode}
-                </span>
-              )}
+        <div className="max-w-lg mx-auto">
+          {/* Row 1: Name/room info (left) + action buttons (right) — fixed positions */}
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <h1 className="text-base font-semibold truncate">Hi, {me.name}!</h1>
+              <div className="flex items-center gap-2 mt-1 flex-wrap">
+                <p className="text-xs text-gray-400 whitespace-nowrap">
+                  {gameState.roomName} · <span className={timerColor + ' font-medium'}>{timerLabel}</span>
+                </p>
+                {myInfo?.roomCode && (
+                  <span
+                    className="cursor-pointer group badge badge-blue text-xs px-2 py-0.5 font-mono whitespace-nowrap"
+                    onClick={copyCode}
+                    title="Click to copy room code"
+                  >
+                    <i className="ti ti-copy text-xs" /> {myInfo.roomCode}
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              <button
+                className="btn btn-sm btn-outline"
+                onClick={toggleVibration}
+                title={vibrationOn ? 'Vibration On (tap to disable)' : 'Vibration Off (tap to enable)'}
+              >
+                <i className={`ti ${vibrationOn ? 'ti-device-mobile-vibration' : 'ti-device-mobile-off'}`} />
+              </button>
+              <button
+                className="btn btn-sm btn-outline-danger"
+                onClick={() => setConfirm({
+                  title: 'Leave Game',
+                  message: 'Leave the game?',
+                  subMessage: 'Your transaction history will be preserved.',
+                  confirmLabel: 'Leave',
+                  confirmType: 'danger',
+                  onConfirm: () => { setConfirm(null); onLeave() }
+                })}
+              >
+                <i className="ti ti-logout" /> Leave
+              </button>
             </div>
           </div>
-          <div className="flex items-center gap-1.5 flex-wrap justify-end">
-            {me.jail && <span className="badge badge-red">In Jail</span>}
-            {!me.passport && <span className="badge badge-amber">Passport Suspended</span>}
-            {me.cc?.used && me.cc?.remaining > 0 && (
-              <span className="badge badge-blue">CC: {me.cc.remaining} left</span>
-            )}
-            <button
-              className="btn btn-sm btn-outline"
-              onClick={toggleVibration}
-              title={vibrationOn ? 'Vibration On (tap to disable)' : 'Vibration Off (tap to enable)'}
-            >
-              <i className={`ti ${vibrationOn ? 'ti-device-mobile-vibration' : 'ti-device-mobile-off'}`} />
-            </button>
-            <button
-              className="btn btn-sm btn-outline-danger"
-              onClick={() => setConfirm({
-                title: 'Leave Game',
-                message: 'Leave the game?',
-                subMessage: 'Your transaction history will be preserved.',
-                confirmLabel: 'Leave',
-                confirmType: 'danger',
-                onConfirm: () => { setConfirm(null); onLeave() }
-              })}
-            >
-              <i className="ti ti-logout" /> Leave
-            </button>
-          </div>
+
+          {/* Row 2: Status badges — wraps independently, never affects button positions */}
+          {(me.jail || !me.passport || (me.cc?.used && me.cc?.remaining > 0)) && (
+            <div className="flex items-center gap-1.5 flex-wrap mt-2">
+              {me.jail && <span className="badge badge-red">In Jail</span>}
+              {!me.passport && <span className="badge badge-amber">Passport Suspended</span>}
+              {me.cc?.used && me.cc?.remaining > 0 && (
+                <span className="badge badge-blue">CC: {me.cc.remaining} left</span>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
